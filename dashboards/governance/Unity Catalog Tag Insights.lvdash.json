@@ -1,0 +1,1698 @@
+{
+  "datasets": [
+    {
+      "name": "335817b5",
+      "displayName": "Options for Read/Write/Both read and write",
+      "queryLines": [
+        "SELECT 'Read' AS operation\n",
+        "UNION ALL\n",
+        "SELECT 'Write'\n",
+        "UNION ALL\n",
+        "SELECT 'Both read and write'"
+      ]
+    },
+    {
+      "name": "44fbd6cc",
+      "displayName": "List of Columns with Tags",
+      "queryLines": [
+        "SELECT \n",
+        "    concat(catalog_name, '.', schema_name, '.', table_name) as full_name, \n",
+        "    column_name,\n",
+        "    tag_name, \n",
+        "    NULLIF(tag_value, '') as tag_value\n",
+        "FROM \n",
+        "    system.information_schema.column_tags\n",
+        "WHERE\n",
+        "    (tag_name = :tag_name OR :tag_name = 'All Tag Names') \n",
+        "    AND \n",
+        "    (\n",
+        "        tag_value = :tag_value \n",
+        "        OR :tag_value = 'All Tag Values' \n",
+        "        OR (:tag_value = 'null' AND NULLIF(tag_value, '') IS NULL)\n",
+        "    );"
+      ],
+      "parameters": [
+        {
+          "displayName": "tag_name",
+          "keyword": "tag_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Tag Names"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "tag_value",
+          "keyword": "tag_value",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Tag Values"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1f2da46c",
+      "displayName": "List of Tables with Tags",
+      "queryLines": [
+        "SELECT \n",
+        "    concat(catalog_name, '.', schema_name, '.', table_name) as full_name, \n",
+        "    tag_name, \n",
+        "    NULLIF(tag_value, '') as tag_value\n",
+        "FROM \n",
+        "    system.information_schema.table_tags\n",
+        "WHERE\n",
+        "    (tag_name = :tag_name OR :tag_name = 'All Tag Names') \n",
+        "    AND \n",
+        "    (\n",
+        "        tag_value = :tag_value \n",
+        "        OR :tag_value = 'All Tag Values' \n",
+        "        OR (:tag_value = 'null' AND NULLIF(tag_value, '') IS NULL)\n",
+        "    );"
+      ],
+      "parameters": [
+        {
+          "displayName": "tag_name",
+          "keyword": "tag_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Tag Names"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "tag_value",
+          "keyword": "tag_value",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Tag Values"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "65ad5bdc",
+      "displayName": "Tag Names",
+      "queryLines": [
+        "SELECT tag_name FROM system.information_schema.column_tags\n",
+        "UNION\n",
+        "SELECT tag_name FROM system.information_schema.table_tags;"
+      ]
+    },
+    {
+      "name": "36efad9e",
+      "displayName": "Tag Values",
+      "queryLines": [
+        "SELECT \n",
+        "    CASE \n",
+        "        WHEN tag_value = '' THEN 'null' \n",
+        "        ELSE tag_value \n",
+        "    END AS tag_value\n",
+        "FROM \n",
+        "    system.information_schema.column_tags \n",
+        "WHERE \n",
+        "    :tag_name = tag_name \n",
+        "    OR :tag_name = 'All Tag Names'\n",
+        "UNION\n",
+        "SELECT \n",
+        "    CASE \n",
+        "        WHEN tag_value = '' THEN 'null' \n",
+        "        ELSE tag_value \n",
+        "    END AS tag_value\n",
+        "FROM \n",
+        "    system.information_schema.table_tags \n",
+        "WHERE \n",
+        "    :tag_name = tag_name \n",
+        "    OR :tag_name = 'All Tag Names'\n",
+        "ORDER BY\n",
+        "    CASE \n",
+        "        WHEN tag_value = 'null' THEN 0 \n",
+        "        ELSE 1 \n",
+        "    END, \n",
+        "    tag_value;"
+      ],
+      "parameters": [
+        {
+          "displayName": "tag_name",
+          "keyword": "tag_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Tag Names"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a2457846",
+      "displayName": "Users who Interact with Table Tags",
+      "queryLines": [
+        "WITH\n",
+        "  reads AS (\n",
+        "    SELECT\n",
+        "      CONCAT(lat.source_table_catalog, '.', lat.source_table_schema, '.', lat.source_table_name) AS full_name,\n",
+        "      lat.created_by,\n",
+        "      COUNT(*) AS usage_count\n",
+        "    FROM\n",
+        "      system.access.table_lineage lat\n",
+        "    WHERE\n",
+        "      lat.source_type = 'TABLE' AND\n",
+        "      lat.source_table_name IS NOT NULL AND\n",
+        "      lat.event_time >= :date_range_start AND lat.event_time <= :date_range_end\n",
+        "    GROUP BY\n",
+        "      lat.source_table_catalog, lat.source_table_schema, lat.source_table_name, lat.created_by\n",
+        "  ),\n",
+        "  writes AS (\n",
+        "    SELECT\n",
+        "      CONCAT(lat.target_table_catalog, '.', lat.target_table_schema, '.', lat.target_table_name) AS full_name,\n",
+        "      lat.created_by,\n",
+        "      COUNT(*) AS usage_count\n",
+        "    FROM\n",
+        "      system.access.table_lineage lat\n",
+        "    WHERE\n",
+        "      lat.target_type = 'TABLE' AND\n",
+        "      lat.target_table_name IS NOT NULL AND\n",
+        "      lat.event_time >= :date_range_start AND lat.event_time <= :date_range_end\n",
+        "    GROUP BY\n",
+        "      lat.target_table_catalog, lat.target_table_schema, lat.target_table_name, lat.created_by\n",
+        "  ),\n",
+        "  combined AS (\n",
+        "    SELECT * FROM reads\n",
+        "    WHERE :toggle_parameter IN ('Read', 'Both read and write')\n",
+        "    UNION ALL\n",
+        "    SELECT * FROM writes\n",
+        "    WHERE :toggle_parameter IN ('Write', 'Both read and write')\n",
+        "  ),\n",
+        "  tagged_tables AS (\n",
+        "    SELECT \n",
+        "        CONCAT(tt.catalog_name, '.', tt.schema_name, '.', tt.table_name) as full_name, \n",
+        "        * \n",
+        "    FROM \n",
+        "        system.information_schema.table_tags tt\n",
+        "    WHERE \n",
+        "        (tt.tag_name = :tag_name OR :tag_name = 'All Tag Names') \n",
+        "        AND (\n",
+        "          tt.tag_value = :tag_value \n",
+        "          OR :tag_value = 'All Tag Values'\n",
+        "          OR (:tag_value = 'null' AND NULLIF(tt.tag_value, '') IS NULL)\n",
+        "          )\n",
+        "  )\n",
+        "SELECT \n",
+        "    combined.created_by, \n",
+        "    COUNT(*) AS usage_count\n",
+        "FROM \n",
+        "    tagged_tables tt\n",
+        "JOIN \n",
+        "    combined \n",
+        "ON tt.full_name = combined.full_name\n",
+        "WHERE\n",
+        "    combined.created_by IS NOT NULL\n",
+        "GROUP BY \n",
+        "    combined.created_by\n",
+        "ORDER BY \n",
+        "    usage_count DESC\n",
+        "LIMIT 20;"
+      ],
+      "parameters": [
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-7d/d"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/s"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "tag_name",
+          "keyword": "tag_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Tag Names"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "tag_value",
+          "keyword": "tag_value",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Tag Values"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "b3296006",
+      "displayName": "Bar Chart of Tables with Tags",
+      "queryLines": [
+        "WITH TopTags AS (\n",
+        "  SELECT \n",
+        "    tag_name\n",
+        "  FROM (\n",
+        "    SELECT \n",
+        "      tag_name\n",
+        "    FROM \n",
+        "      system.information_schema.table_tags\n",
+        "    WHERE \n",
+        "      tag_name IS NOT NULL\n",
+        "      AND (tag_name = :tag_name OR :tag_name = 'All Tag Names')\n",
+        "  ) AS combined_tags\n",
+        "  GROUP BY \n",
+        "    tag_name\n",
+        "  ORDER BY \n",
+        "    COUNT(*) DESC\n",
+        "  LIMIT 20\n",
+        "),\n",
+        "TagNameValuePairs AS (\n",
+        "  SELECT\n",
+        "    tag_name,\n",
+        "    NULLIF(tag_value, '') AS tag_value\n",
+        "  FROM \n",
+        "    system.information_schema.table_tags\n",
+        "  WHERE \n",
+        "    tag_name IN (SELECT tag_name FROM TopTags)\n",
+        "    AND (NULLIF(tag_value, '') = :tag_value OR :tag_value = 'All Tag Values')\n",
+        "),\n",
+        "AggregatedUsage AS (\n",
+        "  SELECT\n",
+        "    tag_name,\n",
+        "    tag_value,\n",
+        "    COUNT(*) AS usage_count\n",
+        "  FROM \n",
+        "    TagNameValuePairs\n",
+        "  GROUP BY \n",
+        "    tag_name, tag_value\n",
+        "),\n",
+        "RankedTagValues AS (\n",
+        "  SELECT\n",
+        "    tag_name,\n",
+        "    tag_value,\n",
+        "    usage_count,\n",
+        "    ROW_NUMBER() OVER (PARTITION BY tag_name ORDER BY usage_count DESC) AS tag_value_rank\n",
+        "  FROM \n",
+        "    AggregatedUsage\n",
+        ")\n",
+        "SELECT \n",
+        "  tag_name,\n",
+        "  tag_value,\n",
+        "  usage_count,\n",
+        "  tag_value_rank\n",
+        "FROM \n",
+        "  RankedTagValues\n",
+        "WHERE \n",
+        "  tag_value_rank <= 20\n",
+        "ORDER BY\n",
+        "  usage_count DESC;"
+      ],
+      "parameters": [
+        {
+          "displayName": "tag_name",
+          "keyword": "tag_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Tag Names"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "tag_value",
+          "keyword": "tag_value",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Tag Values"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a6cea75e",
+      "displayName": "Pie Chart of Tagged Vs Untagged Tables",
+      "queryLines": [
+        "WITH tagged_count AS (\n",
+        "    SELECT COUNT(*) AS count FROM system.information_schema.table_tags\n",
+        ")\n",
+        "SELECT 'Tagged' AS label, count \n",
+        "FROM tagged_count\n",
+        "UNION ALL\n",
+        "SELECT 'Untagged' AS label, \n",
+        "       (SELECT COUNT(*) FROM system.information_schema.tables) - count \n",
+        "FROM tagged_count;"
+      ]
+    },
+    {
+      "name": "36818ce9",
+      "displayName": "Count of Catalog Tags",
+      "queryLines": [
+        "SELECT COUNT(*) FROM system.information_schema.column_tags;"
+      ]
+    },
+    {
+      "name": "50d30f70",
+      "displayName": "Scatter Plot",
+      "queryLines": [
+        "WITH \n",
+        "usage_counts AS (\n",
+        "    SELECT \n",
+        "        schema_name,\n",
+        "        SUM(usage_count) AS usage_count\n",
+        "    FROM (\n",
+        "        SELECT \n",
+        "            CONCAT(lat.source_table_catalog, '.', lat.source_table_schema) AS schema_name,\n",
+        "            COUNT(*) AS usage_count\n",
+        "        FROM\n",
+        "            system.access.table_lineage lat\n",
+        "        WHERE\n",
+        "            lat.source_type = 'TABLE'\n",
+        "            AND lat.event_time >= :date_range_start \n",
+        "            AND lat.event_time <= :date_range_end\n",
+        "        GROUP BY \n",
+        "            lat.source_table_catalog, lat.source_table_schema\n",
+        "        \n",
+        "        UNION ALL\n",
+        "        \n",
+        "        SELECT \n",
+        "            CONCAT(lat.target_table_catalog, '.', lat.target_table_schema) AS schema_name,\n",
+        "            COUNT(*) AS usage_count\n",
+        "        FROM\n",
+        "            system.access.table_lineage lat\n",
+        "        WHERE\n",
+        "            lat.target_type = 'TABLE'\n",
+        "            AND lat.event_time >= :date_range_start \n",
+        "            AND lat.event_time <= :date_range_end\n",
+        "        GROUP BY \n",
+        "            lat.target_table_catalog, lat.target_table_schema\n",
+        "    ) combined_usage\n",
+        "    GROUP BY \n",
+        "        schema_name\n",
+        "),\n",
+        "schema_table_counts AS (\n",
+        "    SELECT \n",
+        "        schemata.CATALOG_NAME || '.' || schemata.SCHEMA_NAME AS schema_name,\n",
+        "        COUNT(*) AS total_tables,\n",
+        "        COUNT(tagged.table_name) AS tagged_tables\n",
+        "    FROM \n",
+        "        system.information_schema.schemata schemata\n",
+        "    LEFT JOIN \n",
+        "        system.information_schema.tables tables\n",
+        "        ON schemata.SCHEMA_NAME = tables.table_schema\n",
+        "        AND schemata.CATALOG_NAME = tables.table_catalog\n",
+        "    LEFT JOIN \n",
+        "        system.information_schema.table_tags tagged\n",
+        "        ON tables.table_catalog = tagged.catalog_name\n",
+        "        AND tables.table_schema = tagged.schema_name\n",
+        "        AND tables.table_name = tagged.table_name\n",
+        "    GROUP BY \n",
+        "        schemata.CATALOG_NAME, schemata.SCHEMA_NAME\n",
+        ")\n",
+        "SELECT \n",
+        "    usage_counts.schema_name,\n",
+        "    usage_counts.usage_count,\n",
+        "    schema_table_counts.total_tables,\n",
+        "    schema_table_counts.tagged_tables,\n",
+        "    (schema_table_counts.tagged_tables * 100.0 / schema_table_counts.total_tables) AS percent_tagged\n",
+        "FROM \n",
+        "    usage_counts\n",
+        "JOIN \n",
+        "    schema_table_counts\n",
+        "ON \n",
+        "    usage_counts.schema_name = schema_table_counts.schema_name\n",
+        "ORDER BY \n",
+        "    usage_counts.usage_count DESC\n",
+        "LIMIT 20;"
+      ],
+      "parameters": [
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-7d/d"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/s"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "accefabc",
+      "displayName": "New Page",
+      "layout": [
+        {
+          "widget": {
+            "name": "32d15b12",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_date_range_start",
+                "query": {
+                  "datasetName": "a2457846",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_date_range_start"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Start Date:"
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "DATETIME",
+                    "values": [
+                      {
+                        "value": "now-1M/M"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 34,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "32873e91",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_date_range_end",
+                "query": {
+                  "datasetName": "a2457846",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_date_range_end"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "End Date:"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 34,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "eea1f79d",
+            "queries": [
+              {
+                "name": "dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd191d5c9fd14c9c107f08bb_operation",
+                "query": {
+                  "datasetName": "335817b5",
+                  "fields": [
+                    {
+                      "name": "operation",
+                      "expression": "`operation`"
+                    },
+                    {
+                      "name": "operation_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_toggle_parameter",
+                "query": {
+                  "datasetName": "a2457846",
+                  "parameters": [
+                    {
+                      "name": "toggle_parameter",
+                      "keyword": "toggle_parameter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "operation",
+                    "displayName": "operation",
+                    "queryName": "dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd191d5c9fd14c9c107f08bb_operation"
+                  },
+                  {
+                    "parameterName": "toggle_parameter",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_toggle_parameter"
+                  }
+                ]
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "Both read and write"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filter Usage by Reads or Writes:",
+                "showDescription": false,
+                "description": ""
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 34,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "382afb5c",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Explore tagged object usage (fix)\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "98ac7c6c",
+            "queries": [
+              {
+                "name": "dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd27103c8f7101045614042a_tag_name",
+                "query": {
+                  "datasetName": "65ad5bdc",
+                  "fields": [
+                    {
+                      "name": "tag_name",
+                      "expression": "`tag_name`"
+                    },
+                    {
+                      "name": "tag_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd1d155bb49d941f4c941946_tag_name",
+                "query": {
+                  "datasetName": "44fbd6cc",
+                  "parameters": [
+                    {
+                      "name": "tag_name",
+                      "keyword": "tag_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd201d3586e416432506e1d4_tag_name",
+                "query": {
+                  "datasetName": "1f2da46c",
+                  "parameters": [
+                    {
+                      "name": "tag_name",
+                      "keyword": "tag_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_tag_name",
+                "query": {
+                  "datasetName": "a2457846",
+                  "parameters": [
+                    {
+                      "name": "tag_name",
+                      "keyword": "tag_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd2a18628021b80f0a0b433d_tag_name",
+                "query": {
+                  "datasetName": "36efad9e",
+                  "parameters": [
+                    {
+                      "name": "tag_name",
+                      "keyword": "tag_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "tag_name",
+                    "displayName": "tag_name",
+                    "queryName": "dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd27103c8f7101045614042a_tag_name"
+                  },
+                  {
+                    "parameterName": "tag_name",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd1d155bb49d941f4c941946_tag_name"
+                  },
+                  {
+                    "parameterName": "tag_name",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd201d3586e416432506e1d4_tag_name"
+                  },
+                  {
+                    "parameterName": "tag_name",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_tag_name"
+                  },
+                  {
+                    "parameterName": "tag_name",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd2a18628021b80f0a0b433d_tag_name"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filter by Tag Name:"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 25,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "8dfc0898",
+            "queries": [
+              {
+                "name": "dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd2a18628021b80f0a0b433d_tag_value",
+                "query": {
+                  "datasetName": "36efad9e",
+                  "fields": [
+                    {
+                      "name": "tag_value",
+                      "expression": "`tag_value`"
+                    },
+                    {
+                      "name": "tag_value_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd1d155bb49d941f4c941946_tag_value",
+                "query": {
+                  "datasetName": "44fbd6cc",
+                  "parameters": [
+                    {
+                      "name": "tag_value",
+                      "keyword": "tag_value"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd201d3586e416432506e1d4_tag_value",
+                "query": {
+                  "datasetName": "1f2da46c",
+                  "parameters": [
+                    {
+                      "name": "tag_value",
+                      "keyword": "tag_value"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_tag_value",
+                "query": {
+                  "datasetName": "a2457846",
+                  "parameters": [
+                    {
+                      "name": "tag_value",
+                      "keyword": "tag_value"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "tag_value",
+                    "displayName": "tag_value",
+                    "queryName": "dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd2a18628021b80f0a0b433d_tag_value"
+                  },
+                  {
+                    "parameterName": "tag_value",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd1d155bb49d941f4c941946_tag_value"
+                  },
+                  {
+                    "parameterName": "tag_value",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd201d3586e416432506e1d4_tag_value"
+                  },
+                  {
+                    "parameterName": "tag_value",
+                    "queryName": "parameter_dashboards/01ef4ecebd151c0087ea69b0e80fee28/datasets/01ef4ecebd311449a3a4dea9bd3ffc68_tag_value"
+                  }
+                ]
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "All Tag Values"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filter by Tag Value:"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 25,
+            "width": 3,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "600d4dc6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "44fbd6cc",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Tagged Columns",
+                "showDescription": true,
+                "description": "See the count of columns with the specified tags"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 26,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "3d767878",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "44fbd6cc",
+                  "fields": [
+                    {
+                      "name": "full_name",
+                      "expression": "`full_name`"
+                    },
+                    {
+                      "name": "column_name",
+                      "expression": "`column_name`"
+                    },
+                    {
+                      "name": "tag_name",
+                      "expression": "`tag_name`"
+                    },
+                    {
+                      "name": "tag_value",
+                      "expression": "`tag_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "full_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Full Table Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "full_name"
+                  },
+                  {
+                    "fieldName": "column_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Masked Column Name",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "column_name"
+                  },
+                  {
+                    "fieldName": "tag_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100002,
+                    "title": "Tag Name",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "tag_name"
+                  },
+                  {
+                    "fieldName": "tag_value",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100003,
+                    "title": "Tag Value",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "tag_value"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Tagged Columns",
+                "showDescription": true,
+                "description": "Identify columns with the specified tags"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 28,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "cc9ad659",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "1f2da46c",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Tagged Tables",
+                "showDescription": true,
+                "description": "See the count of tables with the specified tags"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 26,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "a8926d63",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "1f2da46c",
+                  "fields": [
+                    {
+                      "name": "full_name",
+                      "expression": "`full_name`"
+                    },
+                    {
+                      "name": "tag_name",
+                      "expression": "`tag_name`"
+                    },
+                    {
+                      "name": "tag_value",
+                      "expression": "`tag_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "full_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 0,
+                    "title": "Full Table Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "full_name"
+                  },
+                  {
+                    "fieldName": "tag_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 1,
+                    "title": "Tag Name",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "tag_name"
+                  },
+                  {
+                    "fieldName": "tag_value",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 2,
+                    "title": "Tag Value",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "tag_value"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Tagged Tables",
+                "showDescription": true,
+                "description": "Identify tables with the specified tags"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 28,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "6bdf7a82",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a2457846",
+                  "fields": [
+                    {
+                      "name": "sum(usage_count)",
+                      "expression": "SUM(`usage_count`)"
+                    },
+                    {
+                      "name": "created_by",
+                      "expression": "`created_by`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(usage_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Usage Count"
+                },
+                "y": {
+                  "fieldName": "created_by",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "User"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Most Active Users",
+                "showDescription": true,
+                "description": "Identify users with the highest usage (read/writes) of tables with the specified tags over the specified time range"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 36,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "4656a46c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "b3296006",
+                  "fields": [
+                    {
+                      "name": "tag_value",
+                      "expression": "`tag_value`"
+                    },
+                    {
+                      "name": "sum(usage_count)",
+                      "expression": "SUM(`usage_count`)"
+                    },
+                    {
+                      "name": "tag_name",
+                      "expression": "`tag_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(usage_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Usage Count"
+                },
+                "y": {
+                  "fieldName": "tag_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Tag Name"
+                },
+                "color": {
+                  "fieldName": "tag_value",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "hide": true
+                  },
+                  "displayName": "Tag Value"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Most Used Table Tags",
+                "showDescription": true,
+                "description": "Identify the table tag names with the highest usage"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "56f0bc85",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Unity Catalog Tagging\n",
+                "\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "0b219467",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "36818ce9",
+                  "fields": [
+                    {
+                      "name": "count(1)",
+                      "expression": "`count(1)`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(1)",
+                  "displayName": "count(1)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Tagged Columns",
+                "showDescription": true,
+                "description": "See the count of columns with tags"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "f4f8822e",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a6cea75e",
+                  "fields": [
+                    {
+                      "name": "sum(count)",
+                      "expression": "SUM(`count`)"
+                    },
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "sum(count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": " "
+                },
+                "color": {
+                  "fieldName": "label",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Legend"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Table Tag Usage",
+                "showDescription": true,
+                "description": "See the breakdown of tagged and untagged tables"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "3df1c15d",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Overview\n",
+                "Get a high-level view of tagged objects in your Unity Catalog metastore"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "03304f06",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "50d30f70",
+                  "fields": [
+                    {
+                      "name": "schema_name",
+                      "expression": "`schema_name`"
+                    },
+                    {
+                      "name": "usage_count",
+                      "expression": "`usage_count`"
+                    },
+                    {
+                      "name": "percent_tagged",
+                      "expression": "`percent_tagged`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "usage_count",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Usage Count"
+                },
+                "y": {
+                  "fieldName": "percent_tagged",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Percent Tagged"
+                },
+                "color": {
+                  "fieldName": "schema_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Schema Name"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Tagging Percentage in Most Used Schemas",
+                "showDescription": true,
+                "description": "See the distribution of tagged tables amongs the schemas with the highest usage"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ]
+}

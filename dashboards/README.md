@@ -7,6 +7,3 @@ https://github.com/yati1002/Workflowadvisor/tree/main
 
 
 https://rohitbhagwat.medium.com/exploring-lakeview-dashboards-for-tracking-databricks-usage-97dcb1cda13d
-
-
-

@@ -1,0 +1,1232 @@
+{
+  "datasets": [
+    {
+      "name": "9ceb519e",
+      "displayName": "List of Tables -- Permissions",
+      "queryLines": [
+        "SELECT\n",
+        "    grantor, grantee, concat(TABLE_CATALOG, '.', TABLE_SCHEMA, '.', TABLE_NAME) AS full_name,\n",
+        "    table_catalog, table_schema, table_name, privilege_type\n",
+        "FROM \n",
+        "    system.information_schema.table_privileges\n",
+        "WHERE \n",
+        "    (grantee = :account_user or :account_user = \"All Grantees\") AND\n",
+        "    ((:privilege_type = \"All Types\") \n",
+        "      OR (:privilege_type = \"All Privileges\" AND privilege_type = \"ALL_PRIVILEGES\") \n",
+        "      OR (:privilege_type = \"Write\" AND privilege_type = \"MODIFY\") \n",
+        "      OR (:privilege_type = \"Read\" AND privilege_type = \"SELECT\"))\n",
+        "    AND (grantor = :grantor OR :grantor = \"All Grantors\");"
+      ],
+      "parameters": [
+        {
+          "displayName": "account_user",
+          "keyword": "account_user",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "account users"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "privilege_type",
+          "keyword": "privilege_type",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Types"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "grantor",
+          "keyword": "grantor",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Grantors"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6dd85412",
+      "displayName": "Specified User Options -- Permissions",
+      "queryLines": [
+        "SELECT DISTINCT grantee, grantor\n",
+        "FROM system.information_schema.table_privileges"
+      ]
+    },
+    {
+      "name": "2b44458c",
+      "displayName": "Privilege Types -- Permissions",
+      "queryLines": [
+        "SELECT \"All Types\" as privilege_options\n",
+        "UNION ALL\n",
+        "SELECT \"All Privileges\"\n",
+        "UNION ALL\n",
+        "SELECT \"Read\"\n",
+        "UNION ALL\n",
+        "SELECT \"Write\"\n"
+      ]
+    },
+    {
+      "name": "f47851f0",
+      "displayName": "Tables from both Masks and Filters -- Fine-grained",
+      "queryLines": [
+        "WITH combined AS (\n",
+        "    SELECT\n",
+        "        CONCAT(cm.table_catalog, '.', cm.table_schema, '.', cm.table_name) AS full_name,\n",
+        "        any_value(tables.table_owner) AS table_owner,\n",
+        "        array_join(collect_list(cm.column_name), ', ') AS column_names,\n",
+        "        'Column Masks' AS source\n",
+        "    FROM \n",
+        "        system.information_schema.column_masks cm\n",
+        "    INNER JOIN\n",
+        "        system.information_schema.tables tables\n",
+        "    ON\n",
+        "        CONCAT(cm.table_catalog, '.', cm.table_schema, '.', cm.table_name) = CONCAT(tables.table_catalog, '.', tables.table_schema, '.', tables.table_name)\n",
+        "    GROUP BY \n",
+        "        CONCAT(cm.table_catalog, '.', cm.table_schema, '.', cm.table_name)\n",
+        "\n",
+        "    UNION ALL\n",
+        "\n",
+        "    SELECT\n",
+        "        CONCAT(rf.table_catalog, '.', rf.table_schema, '.', rf.table_name) AS full_name,\n",
+        "        any_value(tables.table_owner) AS table_owner,\n",
+        "        NULL AS column_names,\n",
+        "        'Row Filters' AS source\n",
+        "    FROM \n",
+        "        system.information_schema.row_filters rf\n",
+        "    INNER JOIN\n",
+        "        system.information_schema.tables tables\n",
+        "    ON\n",
+        "        CONCAT(rf.table_catalog, '.', rf.table_schema, '.', rf.table_name) = CONCAT(tables.table_catalog, '.', tables.table_schema, '.', tables.table_name)\n",
+        "    GROUP BY \n",
+        "        CONCAT(rf.table_catalog, '.', rf.table_schema, '.', rf.table_name)\n",
+        ")\n",
+        "\n",
+        "SELECT \n",
+        "    full_name,\n",
+        "    table_owner,\n",
+        "    column_names,\n",
+        "    source\n",
+        "FROM \n",
+        "    combined\n",
+        "WHERE \n",
+        "    source = :source_type OR :source_type = \"Both column masks and row filters\"\n",
+        ";\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "source_type",
+          "keyword": "source_type",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both column masks and row filters"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "0fe3281a",
+      "displayName": "Masks / Filters Toggle -- Fine-grained",
+      "queryLines": [
+        "SELECT \"Column Masks\"\n",
+        "UNION ALL\n",
+        "SELECT \"Row Filters\"\n",
+        "UNION ALL\n",
+        "SELECT \"Both column masks and row filters\""
+      ]
+    },
+    {
+      "name": "6bebf80e",
+      "displayName": "Most Usages for both Masks and Filters -- Fine-grained",
+      "queryLines": [
+        "WITH\n",
+        "  reads AS (\n",
+        "    SELECT\n",
+        "      CONCAT(lat.source_table_catalog, '.', lat.source_table_schema, '.', lat.source_table_name) AS full_name,\n",
+        "      lat.created_by,\n",
+        "      COUNT(*) AS usage_count\n",
+        "    FROM\n",
+        "      system.access.table_lineage lat\n",
+        "    WHERE\n",
+        "      lat.source_type = 'TABLE' AND\n",
+        "      lat.source_table_name IS NOT NULL AND\n",
+        "      lat.event_time >= :date_range_start AND lat.event_time <= :date_range_end\n",
+        "    GROUP BY\n",
+        "      lat.source_table_catalog, lat.source_table_schema, lat.source_table_name, lat.created_by\n",
+        "  ),\n",
+        "  filter_tables AS (\n",
+        "    SELECT\n",
+        "      CONCAT(rf.table_catalog, '.', rf.table_schema, '.', rf.table_name) AS full_name\n",
+        "    FROM\n",
+        "      system.information_schema.row_filters rf\n",
+        "    WHERE\n",
+        "        :filter_type = 'Row Filters' OR :filter_type = \"Both column masks and row filters\"\n",
+        "    UNION ALL\n",
+        "    SELECT\n",
+        "      CONCAT(cm.table_catalog, '.', cm.table_schema, '.', cm.table_name) AS full_name\n",
+        "    FROM\n",
+        "      system.information_schema.column_masks cm\n",
+        "    WHERE\n",
+        "      :filter_type = 'Column Masks' OR :filter_type = \"Both column masks and row filters\"\n",
+        "  ),\n",
+        "  total_creators AS (\n",
+        "    SELECT\n",
+        "      COUNT(DISTINCT reads.created_by) AS total_creators\n",
+        "    FROM\n",
+        "      filter_tables ft\n",
+        "    JOIN\n",
+        "      reads\n",
+        "      ON ft.full_name = reads.full_name\n",
+        "    WHERE\n",
+        "      reads.created_by IS NOT NULL\n",
+        "  ),\n",
+        "  top_creators AS (\n",
+        "    SELECT\n",
+        "      reads.created_by,\n",
+        "      SUM(reads.usage_count) AS usage_count\n",
+        "    FROM\n",
+        "      filter_tables ft\n",
+        "    JOIN\n",
+        "      reads\n",
+        "      ON ft.full_name = reads.full_name\n",
+        "    WHERE\n",
+        "      reads.created_by IS NOT NULL\n",
+        "    GROUP BY\n",
+        "      reads.created_by\n",
+        "    ORDER BY\n",
+        "      usage_count DESC\n",
+        "    LIMIT 20\n",
+        "  )\n",
+        "SELECT\n",
+        "  tc.created_by,\n",
+        "  tc.usage_count,\n",
+        "  tc_total.total_creators\n",
+        "FROM\n",
+        "  top_creators tc\n",
+        "CROSS JOIN\n",
+        "  total_creators tc_total;"
+      ],
+      "parameters": [
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-12M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/s"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "filter_type",
+          "keyword": "filter_type",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both column masks and row filters"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "ffbc17a3",
+      "displayName": "New Page",
+      "layout": [
+        {
+          "widget": {
+            "name": "d64feb3b",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Fine-grained Access Control\n",
+                "Use this section to identify Unity Catalog objects with row-level security or column masking applied to them"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "b623a4b0",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f47851f0",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Sensitive Tables",
+                "showDescription": true,
+                "description": "See the count of fine-grained access-controlled tables"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "6a0d00dc",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f47851f0",
+                  "fields": [
+                    {
+                      "name": "full_name",
+                      "expression": "`full_name`"
+                    },
+                    {
+                      "name": "table_owner",
+                      "expression": "`table_owner`"
+                    },
+                    {
+                      "name": "column_names",
+                      "expression": "`column_names`"
+                    },
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "full_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Full Table Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "full_name"
+                  },
+                  {
+                    "fieldName": "table_owner",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Table Owner",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "table_owner"
+                  },
+                  {
+                    "fieldName": "column_names",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100002,
+                    "title": "Masked Column Names",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "description": "",
+                    "displayName": "column_names"
+                  },
+                  {
+                    "fieldName": "source",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100003,
+                    "title": "Control Type",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "source"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Sensitive Tables",
+                "showDescription": true,
+                "description": "Identify tables which are fine-grained access-controlled"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 23,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "f6b715cd",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "6bebf80e",
+                  "fields": [
+                    {
+                      "name": "sum(usage_count)",
+                      "expression": "SUM(`usage_count`)"
+                    },
+                    {
+                      "name": "created_by",
+                      "expression": "`created_by`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(usage_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Usage Count"
+                },
+                "y": {
+                  "fieldName": "created_by",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "User"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Most Active Users",
+                "showDescription": true,
+                "description": "Identify users with the highest usage of fine-grained access-controlled tables"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "c7e1ff96",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Permissions\n",
+                "Use this section to identify what privileges specified principals have on Unity Catalog objects"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "abe6bde9",
+            "queries": [
+              {
+                "name": "dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c991a01ad7acc60edd4cc98_grantee",
+                "query": {
+                  "datasetName": "6dd85412",
+                  "fields": [
+                    {
+                      "name": "grantee",
+                      "expression": "`grantee`"
+                    },
+                    {
+                      "name": "grantee_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c93111aa285841513128a7a_account_user",
+                "query": {
+                  "datasetName": "9ceb519e",
+                  "parameters": [
+                    {
+                      "name": "account_user",
+                      "keyword": "account_user"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "account_user",
+                    "queryName": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c93111aa285841513128a7a_account_user"
+                  },
+                  {
+                    "fieldName": "grantee",
+                    "displayName": "grantee",
+                    "queryName": "dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c991a01ad7acc60edd4cc98_grantee"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filter by Principal:",
+                "showDescription": true,
+                "description": "Select the principal for which you want to see permission information"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "358e6c3b",
+            "queries": [
+              {
+                "name": "dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c9c1f5590cacc9496fdd8a6_privilege_options",
+                "query": {
+                  "datasetName": "2b44458c",
+                  "fields": [
+                    {
+                      "name": "privilege_options",
+                      "expression": "`privilege_options`"
+                    },
+                    {
+                      "name": "privilege_options_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c93111aa285841513128a7a_privilege_type",
+                "query": {
+                  "datasetName": "9ceb519e",
+                  "parameters": [
+                    {
+                      "name": "privilege_type",
+                      "keyword": "privilege_type"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "privilege_options",
+                    "displayName": "privilege_options",
+                    "queryName": "dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c9c1f5590cacc9496fdd8a6_privilege_options"
+                  },
+                  {
+                    "parameterName": "privilege_type",
+                    "queryName": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c93111aa285841513128a7a_privilege_type"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filter by Privilege Type:"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "bfb542de",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "9ceb519e",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Accessible Tables",
+                "showDescription": true,
+                "description": "See the count of tables the principal has privileges to"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 4,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "2fe18276",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "9ceb519e",
+                  "fields": [
+                    {
+                      "name": "full_name",
+                      "expression": "`full_name`"
+                    },
+                    {
+                      "name": "grantor",
+                      "expression": "`grantor`"
+                    },
+                    {
+                      "name": "privilege_type",
+                      "expression": "`privilege_type`"
+                    },
+                    {
+                      "name": "grantee",
+                      "expression": "`grantee`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "full_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 0,
+                    "title": "Full Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "full_name"
+                  },
+                  {
+                    "fieldName": "grantor",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 1,
+                    "title": "Grantor",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "grantor"
+                  },
+                  {
+                    "fieldName": "privilege_type",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 2,
+                    "title": "Privilege Type",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "privilege_type"
+                  },
+                  {
+                    "fieldName": "grantee",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 3,
+                    "title": "Principal",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "grantee"
+                  }
+                ]
+              },
+              "invisibleColumns": [
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "table_catalog",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 4,
+                  "title": "table_catalog",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "table_schema",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 5,
+                  "title": "table_schema",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "table_name",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 6,
+                  "title": "table_name",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                }
+              ],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Accessible Tables",
+                "showDescription": true,
+                "description": "Identify tables which the principal has the specified privileges to"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "de52f6ef",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Unity Catalog Access Control"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "597a02b8",
+            "queries": [
+              {
+                "name": "dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c991a01ad7acc60edd4cc98_grantor",
+                "query": {
+                  "datasetName": "6dd85412",
+                  "fields": [
+                    {
+                      "name": "grantor",
+                      "expression": "`grantor`"
+                    },
+                    {
+                      "name": "grantor_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c93111aa285841513128a7a_grantor",
+                "query": {
+                  "datasetName": "9ceb519e",
+                  "parameters": [
+                    {
+                      "name": "grantor",
+                      "keyword": "grantor"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "grantor",
+                    "queryName": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c93111aa285841513128a7a_grantor"
+                  },
+                  {
+                    "fieldName": "grantor",
+                    "displayName": "grantor",
+                    "queryName": "dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4eeb2c991a01ad7acc60edd4cc98_grantor"
+                  }
+                ]
+              },
+              "disallowAll": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Filter by Grantor:"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 4,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "997d6c63",
+            "queries": [
+              {
+                "name": "dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4ef475e115e99ea416d8e54965df_Column Masks",
+                "query": {
+                  "datasetName": "0fe3281a",
+                  "fields": [
+                    {
+                      "name": "Column Masks",
+                      "expression": "`Column Masks`"
+                    },
+                    {
+                      "name": "Column Masks_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4ef36f9811aa9b36320901393ca0_source_type",
+                "query": {
+                  "datasetName": "f47851f0",
+                  "parameters": [
+                    {
+                      "name": "source_type",
+                      "keyword": "source_type"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4ef5a7c710ad93fdabca5e3e0d9c_filter_type",
+                "query": {
+                  "datasetName": "6bebf80e",
+                  "parameters": [
+                    {
+                      "name": "filter_type",
+                      "keyword": "filter_type"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "Column Masks",
+                    "displayName": "Column Masks",
+                    "queryName": "dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4ef475e115e99ea416d8e54965df_Column Masks"
+                  },
+                  {
+                    "parameterName": "source_type",
+                    "queryName": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4ef36f9811aa9b36320901393ca0_source_type"
+                  },
+                  {
+                    "parameterName": "filter_type",
+                    "queryName": "parameter_dashboards/01ef4eeb2c731e138c20345b05373462/datasets/01ef4ef5a7c710ad93fdabca5e3e0d9c_filter_type"
+                  }
+                ]
+              },
+              "disallowAll": true,
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "Both column masks and row filters"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filter by fine-grained access type:"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 12,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "afde22e0",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "6bebf80e",
+                  "fields": [
+                    {
+                      "name": "total_creators",
+                      "expression": "`total_creators`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_creators",
+                  "displayName": "total_creators"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Active Users",
+                "showDescription": true,
+                "description": "See the count of unique users with usage of fine-grained access-controlled tables"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 14,
+            "width": 3,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}

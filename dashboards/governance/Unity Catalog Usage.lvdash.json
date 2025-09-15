@@ -1,0 +1,3360 @@
+{
+  "datasets": [
+    {
+      "name": "dc47e430",
+      "displayName": "Most Used Tables",
+      "queryLines": [
+        "WITH\n",
+        "  reads AS (\n",
+        "    SELECT\n",
+        "      CONCAT(ANY_VALUE(lat.source_table_catalog), '.', ANY_VALUE(lat.source_table_schema), '.', ANY_VALUE(lat.source_table_name)) AS full_name,\n",
+        "      COUNT(*) AS usage_count,\n",
+        "      ANY_VALUE(ist.table_owner) AS owner_name,\n",
+        "      ANY_VALUE(lat.source_table_catalog) AS catalog_name,\n",
+        "      ANY_VALUE(lat.source_table_schema) AS schema_name,\n",
+        "      ANY_VALUE(lat.source_table_name) AS table_name\n",
+        "    FROM\n",
+        "      system.access.table_lineage AS lat\n",
+        "    INNER JOIN\n",
+        "      system.information_schema.tables AS ist\n",
+        "    ON\n",
+        "      lat.source_table_full_name = CONCAT(ist.TABLE_CATALOG, '.', ist.TABLE_SCHEMA, '.', ist.TABLE_NAME)\n",
+        "    WHERE\n",
+        "      (:specified_user = 'All Users' OR lat.created_by = :specified_user)\n",
+        "    AND (:specified_catalog = 'All Catalogs' OR ist.table_catalog = :specified_catalog)\n",
+        "    AND lat.source_table_name IS NOT NULL\n",
+        "    AND lat.event_time >= :date_range_start\n",
+        "    AND lat.event_time <= :date_range_end\n",
+        "    GROUP BY\n",
+        "      lat.source_table_full_name\n",
+        "  ),\n",
+        "  \n",
+        "  writes AS (\n",
+        "    SELECT\n",
+        "      CONCAT(ANY_VALUE(lat.target_table_catalog), '.', ANY_VALUE(lat.target_table_schema), '.', ANY_VALUE(lat.target_table_name)) AS full_name,\n",
+        "      COUNT(*) AS usage_count,\n",
+        "      ANY_VALUE(ist.table_owner) AS owner_name,\n",
+        "      ANY_VALUE(lat.target_table_catalog) AS catalog_name,\n",
+        "      ANY_VALUE(lat.target_table_schema) AS schema_name,\n",
+        "      ANY_VALUE(lat.target_table_name) AS table_name\n",
+        "    FROM\n",
+        "      system.access.table_lineage AS lat\n",
+        "    INNER JOIN\n",
+        "      system.information_schema.tables AS ist\n",
+        "    ON\n",
+        "      lat.target_table_full_name = CONCAT(ist.TABLE_CATALOG, '.', ist.TABLE_SCHEMA, '.', ist.TABLE_NAME)\n",
+        "    WHERE\n",
+        "      (:specified_user = 'All Users' OR lat.created_by = :specified_user)\n",
+        "    AND (:specified_catalog = 'All Catalogs' OR ist.table_catalog = :specified_catalog)\n",
+        "    AND lat.target_table_name IS NOT NULL\n",
+        "    AND lat.event_time >= :date_range_start\n",
+        "    AND lat.event_time <= :date_range_end\n",
+        "    GROUP BY\n",
+        "      lat.target_table_full_name\n",
+        "  ),\n",
+        "  \n",
+        "  combined AS (\n",
+        "    SELECT * \n",
+        "    FROM reads \n",
+        "    WHERE :toggle_parameter IN ('Read', 'Both read and write')\n",
+        "    UNION ALL\n",
+        "    SELECT * \n",
+        "    FROM writes \n",
+        "    WHERE :toggle_parameter IN ('Write', 'Both read and write')\n",
+        "  )\n",
+        "  \n",
+        "SELECT\n",
+        "  full_name,\n",
+        "  SUM(usage_count) AS usage_count,\n",
+        "  ANY_VALUE(owner_name) AS owner_name,\n",
+        "  ANY_VALUE(catalog_name) AS catalog_name,\n",
+        "  ANY_VALUE(schema_name) AS schema_name,\n",
+        "  ANY_VALUE(table_name) AS table_name\n",
+        "FROM\n",
+        "  combined\n",
+        "GROUP BY\n",
+        "  full_name\n",
+        "ORDER BY\n",
+        "  usage_count DESC;"
+      ],
+      "parameters": [
+        {
+          "displayName": "specified_user",
+          "keyword": "specified_user",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Users"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3cfa719f",
+      "displayName": "Most Used Schemas",
+      "queryLines": [
+        "WITH \n",
+        "  reads AS (\n",
+        "    SELECT \n",
+        "      CONCAT(ANY_VALUE(iss.catalog_name), '.', ANY_VALUE(iss.schema_name)) AS full_name,\n",
+        "      COUNT(*) AS usage_count,\n",
+        "      ANY_VALUE(iss.schema_owner) AS owner_names,\n",
+        "      ANY_VALUE(iss.catalog_name) AS catalog_name,\n",
+        "      ANY_VALUE(iss.schema_name) AS schema_name\n",
+        "\n",
+        "    FROM \n",
+        "      system.access.table_lineage lat\n",
+        "      INNER JOIN system.information_schema.schemata iss\n",
+        "        ON lat.source_table_schema = iss.schema_name\n",
+        "        AND lat.source_table_catalog = iss.catalog_name\n",
+        "\n",
+        "    WHERE \n",
+        "      (:specified_user = 'All Users' OR lat.created_by = :specified_user)\n",
+        "      AND (:specified_catalog = 'All Catalogs' OR iss.catalog_name = :specified_catalog)\n",
+        "      AND lat.source_table_schema IS NOT NULL\n",
+        "      AND lat.event_time >= :date_range_start\n",
+        "      AND lat.event_time <= :date_range_end\n",
+        "\n",
+        "    GROUP BY \n",
+        "      CONCAT(iss.catalog_name, '.', iss.schema_name)\n",
+        "  ),\n",
+        "\n",
+        "  writes AS (\n",
+        "    SELECT \n",
+        "      CONCAT(ANY_VALUE(iss.catalog_name), '.', ANY_VALUE(iss.schema_name)) AS full_name,\n",
+        "      COUNT(*) AS usage_count,\n",
+        "      ANY_VALUE(iss.schema_owner) AS owner_names,\n",
+        "      ANY_VALUE(iss.catalog_name) AS catalog_name,\n",
+        "      ANY_VALUE(iss.schema_name) AS schema_name\n",
+        "\n",
+        "    FROM \n",
+        "      system.access.table_lineage lat\n",
+        "      INNER JOIN system.information_schema.schemata iss\n",
+        "        ON lat.target_table_schema = iss.schema_name\n",
+        "        AND lat.target_table_catalog = iss.catalog_name\n",
+        "\n",
+        "    WHERE \n",
+        "      (:specified_user = 'All Users' OR lat.created_by = :specified_user)\n",
+        "      AND (:specified_catalog = 'All Catalogs' OR iss.catalog_name = :specified_catalog)\n",
+        "      AND lat.target_table_schema IS NOT NULL\n",
+        "      AND lat.event_time >= :date_range_start\n",
+        "      AND lat.event_time <= :date_range_end\n",
+        "\n",
+        "    GROUP BY \n",
+        "      CONCAT(iss.catalog_name, '.', iss.schema_name)\n",
+        "  ),\n",
+        "\n",
+        "  combined AS (\n",
+        "    SELECT * \n",
+        "    FROM reads\n",
+        "    WHERE :toggle_parameter IN ('Read', 'Both read and write')\n",
+        "\n",
+        "    UNION ALL\n",
+        "    SELECT * \n",
+        "    FROM writes\n",
+        "    WHERE :toggle_parameter IN ('Write', 'Both read and write')\n",
+        "  )\n",
+        "\n",
+        "SELECT \n",
+        "  full_name,\n",
+        "  SUM(usage_count) AS usage_count,\n",
+        "  ANY_VALUE(owner_names) AS owner_names,\n",
+        "  ANY_VALUE(catalog_name) AS catalog_name,\n",
+        "  ANY_VALUE(schema_name) AS schema_name\n",
+        "\n",
+        "FROM \n",
+        "  combined\n",
+        "GROUP BY \n",
+        "  full_name\n",
+        "\n",
+        "ORDER BY \n",
+        "  usage_count DESC;"
+      ],
+      "parameters": [
+        {
+          "displayName": "specified_user",
+          "keyword": "specified_user",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Users"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2de138be",
+      "displayName": "Options for Read/Write/Both read and write",
+      "queryLines": [
+        "SELECT 'Read' AS operation\n",
+        "UNION ALL\n",
+        "SELECT 'Write' AS operation\n",
+        "UNION ALL\n",
+        "SELECT 'Both read and write' AS operation"
+      ]
+    },
+    {
+      "name": "cef960db",
+      "displayName": "Total Number of Tables",
+      "queryLines": [
+        "SELECT COUNT(*) FROM system.information_schema.tables\n",
+        "WHERE (:specified_catalog = 'All Catalogs' OR table_catalog = :specified_catalog);"
+      ],
+      "parameters": [
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "afa3d04e",
+      "displayName": "Total Number of Volumes",
+      "queryLines": [
+        "SELECT COUNT(*) FROM system.information_schema.volumes\n",
+        "WHERE (:specified_catalog = 'All Catalogs' OR volume_catalog = :specified_catalog);"
+      ],
+      "parameters": [
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "16a281d4",
+      "displayName": "Total Number of Functions",
+      "queryLines": [
+        "SELECT COUNT(*) FROM system.information_schema.routines\n",
+        "WHERE (:specified_catalog = 'All Catalogs' OR specific_catalog = :specified_catalog);"
+      ],
+      "parameters": [
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "44546bb8",
+      "displayName": "Unused Schemas",
+      "queryLines": [
+        "WITH table_lineage_filtered AS (\n",
+        "    SELECT \n",
+        "        tl.source_table_catalog,\n",
+        "        tl.source_table_schema,\n",
+        "        tl.target_table_catalog,\n",
+        "        tl.target_table_schema\n",
+        "    FROM system.access.table_lineage tl\n",
+        "    WHERE tl.event_time >= :date_range_start AND tl.event_time <= :date_range_end\n",
+        "    AND (:specified_catalog = 'All Catalogs' OR tl.source_table_catalog = :specified_catalog OR tl.target_table_catalog = :specified_catalog)\n",
+        "\n",
+        ")\n",
+        "SELECT\n",
+        "    DISTINCT CONCAT(ist.table_catalog, '.', ist.table_schema) AS full_name,\n",
+        "    ist.table_owner,\n",
+        "    ist.table_catalog,\n",
+        "    ist.table_schema\n",
+        "FROM system.information_schema.tables ist\n",
+        "WHERE \n",
+        "    (:specified_catalog = 'All Catalogs' OR ist.table_catalog = :specified_catalog)\n",
+        "    AND NOT EXISTS (\n",
+        "    SELECT 1\n",
+        "    FROM table_lineage_filtered tl\n",
+        "    WHERE \n",
+        "    (:toggle_parameter = 'Write' AND tl.target_table_catalog = ist.table_catalog AND tl.target_table_schema = ist.table_schema)\n",
+        "    OR\n",
+        "    (:toggle_parameter = 'Read' AND tl.source_table_catalog = ist.table_catalog AND tl.source_table_schema = ist.table_schema)\n",
+        "    OR\n",
+        "    (:toggle_parameter = 'Both read and write' AND \n",
+        "        (tl.source_table_catalog = ist.table_catalog AND tl.source_table_schema = ist.table_schema \n",
+        "        OR tl.target_table_catalog = ist.table_catalog AND tl.target_table_schema = ist.table_schema))\n",
+        ")"
+      ],
+      "parameters": [
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "36bacee5",
+      "displayName": "Count of Unique Users with Table Read/Write Events",
+      "queryLines": [
+        "SELECT \n",
+        "  COUNT(DISTINCT created_by) AS distinct_users\n",
+        "\n",
+        "FROM \n",
+        "  system.access.table_lineage AS tl\n",
+        "\n",
+        "WHERE \n",
+        "  event_time >= :date_range_start\n",
+        "  AND event_time <= :date_range_end\n",
+        "  AND (\n",
+        "    (:toggle_parameter = 'Write' AND target_table_full_name IS NOT NULL AND (:specified_catalog = 'All Catalogs' OR target_table_catalog = :specified_catalog))\n",
+        "    OR\n",
+        "    (:toggle_parameter = 'Read' AND source_table_full_name IS NOT NULL AND (:specified_catalog = 'All Catalogs' OR source_table_catalog = :specified_catalog))\n",
+        "    OR\n",
+        "    (:toggle_parameter = 'Both read and write' AND \n",
+        "     (source_table_full_name IS NOT NULL OR target_table_full_name IS NOT NULL)\n",
+        "     AND (:specified_catalog = 'All Catalogs' OR target_table_catalog = :specified_catalog OR source_table_catalog = :specified_catalog))\n",
+        "  );"
+      ],
+      "parameters": [
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ade21538",
+      "displayName": "Unused Tables",
+      "queryLines": [
+        "WITH table_lineage_filtered AS (\n",
+        "  SELECT \n",
+        "    tl.source_table_catalog,\n",
+        "    tl.target_table_catalog,\n",
+        "    tl.source_table_schema,\n",
+        "    tl.target_table_schema,\n",
+        "    tl.source_table_name,\n",
+        "    tl.target_table_name\n",
+        "  FROM \n",
+        "    system.access.table_lineage tl\n",
+        "  WHERE \n",
+        "    tl.event_time BETWEEN :date_range_start AND :date_range_end\n",
+        "    AND (\n",
+        "      tl.source_type IN ('TABLE', 'STREAMING_TABLE', 'VIEW')\n",
+        "      OR tl.target_type IN ('TABLE', 'STREAMING_TABLE', 'VIEW')\n",
+        "    )\n",
+        "    AND (\n",
+        "      :specified_catalog = 'All Catalogs' \n",
+        "      OR tl.source_table_catalog = :specified_catalog \n",
+        "      OR tl.target_table_catalog = :specified_catalog\n",
+        "    )\n",
+        ")\n",
+        "SELECT \n",
+        "  CONCAT(ist.table_catalog, '.', ist.table_schema, '.', ist.table_name) AS full_name,\n",
+        "  ist.table_owner\n",
+        "FROM \n",
+        "  system.information_schema.tables ist\n",
+        "  LEFT JOIN table_lineage_filtered tl\n",
+        "    ON (\n",
+        "      (:toggle_parameter = 'Write' AND tl.target_table_catalog = ist.table_catalog AND tl.target_table_schema = ist.table_schema AND tl.target_table_name = ist.table_name)\n",
+        "      OR\n",
+        "      (:toggle_parameter = 'Read' AND tl.source_table_catalog = ist.table_catalog AND tl.source_table_schema = ist.table_schema AND tl.source_table_name = ist.table_name)\n",
+        "      OR\n",
+        "      (:toggle_parameter = 'Both read and write' AND \n",
+        "          ((tl.source_table_catalog = ist.table_catalog AND tl.source_table_schema = ist.table_schema AND tl.source_table_name = ist.table_name) \n",
+        "          OR (tl.target_table_catalog = ist.table_catalog AND tl.target_table_schema = ist.table_schema AND tl.target_table_name = ist.table_name)))\n",
+        "    )\n",
+        "WHERE\n",
+        "  (:specified_catalog = 'All Catalogs' OR ist.table_catalog = :specified_catalog)\n",
+        "  AND\n",
+        "  ((:toggle_parameter = 'Read' AND tl.source_table_catalog IS NULL) OR\n",
+        "  (:toggle_parameter = 'Write' AND tl.target_table_catalog IS NULL) OR\n",
+        "  (:toggle_parameter = 'Both read and write' AND tl.target_table_catalog IS NULL AND tl.source_table_catalog IS NULL))"
+      ],
+      "parameters": [
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "b411d9fc",
+      "displayName": "Unused Tables Over Time",
+      "queryLines": [
+        "WITH table_lineage_filtered AS (\n",
+        "  SELECT \n",
+        "    tl.source_table_catalog,\n",
+        "    tl.target_table_catalog,\n",
+        "    tl.source_table_schema,\n",
+        "    tl.target_table_schema,\n",
+        "    tl.source_table_name,\n",
+        "    tl.target_table_name,\n",
+        "    tl.event_time\n",
+        "  FROM \n",
+        "    system.access.table_lineage tl\n",
+        "  WHERE \n",
+        "    tl.event_time >= :start_date \n",
+        "    AND tl.event_time <= :end_date\n",
+        "    AND (\n",
+        "      tl.source_type IN ('TABLE', 'STREAMING_TABLE', 'VIEW')\n",
+        "      OR tl.target_type IN ('TABLE', 'STREAMING_TABLE', 'VIEW')\n",
+        "    )\n",
+        "    AND (\n",
+        "      :specified_catalog = 'All Catalogs' \n",
+        "      OR tl.source_table_catalog = :specified_catalog \n",
+        "      OR tl.target_table_catalog = :specified_catalog\n",
+        "    )\n",
+        "),\n",
+        "date_sequence AS (\n",
+        "  SELECT\n",
+        "    sequence(0, int(datediff(:end_date, :start_date) / 30)) AS month_offset\n",
+        "),\n",
+        "months AS (\n",
+        "  SELECT\n",
+        "    date_format(add_months(date_trunc('month', :start_date), mo.month_offset), 'MMMM') AS month_name,\n",
+        "    add_months(date_trunc('month', :start_date), mo.month_offset) AS month_start,\n",
+        "    last_day(add_months(date_trunc('month', :start_date), mo.month_offset)) AS month_end\n",
+        "  FROM\n",
+        "    date_sequence ds\n",
+        "  LATERAL VIEW explode(ds.month_offset) mo AS month_offset\n",
+        "),\n",
+        "unused_tables AS (\n",
+        "  SELECT\n",
+        "    m.month_start,\n",
+        "    COUNT(DISTINCT CONCAT(ist.table_catalog, '.', ist.table_schema, '.', ist.table_name)) AS unused_table_count\n",
+        "  FROM\n",
+        "    months m\n",
+        "    CROSS JOIN system.information_schema.tables ist\n",
+        "  LEFT JOIN table_lineage_filtered tl\n",
+        "    ON (\n",
+        "      (:toggle_parameter = 'Write' AND tl.target_table_catalog = ist.table_catalog AND tl.target_table_schema = ist.table_schema AND tl.target_table_name = ist.table_name)\n",
+        "      OR\n",
+        "      (:toggle_parameter = 'Read' AND tl.source_table_catalog = ist.table_catalog AND tl.source_table_schema = ist.table_schema AND tl.source_table_name = ist.table_name)\n",
+        "      OR\n",
+        "      (:toggle_parameter = 'Both read and write' AND \n",
+        "          ((tl.source_table_catalog = ist.table_catalog AND tl.source_table_schema = ist.table_schema AND tl.source_table_name = ist.table_name) \n",
+        "          OR (tl.target_table_catalog = ist.table_catalog AND tl.target_table_schema = ist.table_schema AND tl.target_table_name = ist.table_name)))\n",
+        "    )\n",
+        "    AND tl.event_time BETWEEN m.month_start AND m.month_end\n",
+        "  WHERE\n",
+        "    (:specified_catalog = 'All Catalogs' OR ist.table_catalog = :specified_catalog)\n",
+        "    AND\n",
+        "    ((:toggle_parameter = 'Read' AND tl.source_table_catalog IS NULL) OR\n",
+        "    (:toggle_parameter = 'Write' AND tl.target_table_catalog IS NULL) OR\n",
+        "    (:toggle_parameter = 'Both read and write' AND tl.target_table_catalog IS NULL AND tl.source_table_catalog IS NULL))\n",
+        "  GROUP BY m.month_start\n",
+        ")\n",
+        "SELECT * FROM unused_tables\n",
+        "ORDER BY month_start;"
+      ],
+      "parameters": [
+        {
+          "displayName": "end_date",
+          "keyword": "end_date",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "start_date",
+          "keyword": "start_date",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a80ad244",
+      "displayName": "Options for Specified Catalog",
+      "queryLines": [
+        "SELECT \"All Catalogs\" as catalog_name\n",
+        "UNION ALL\n",
+        "SELECT catalog_name FROM system.information_schema.catalogs;"
+      ]
+    },
+    {
+      "name": "e73b5db2",
+      "displayName": "Count of Tables with Usage",
+      "queryLines": [
+        "SELECT \n",
+        "  COUNT(DISTINCT table_full_name) as distinct_tables\n",
+        "FROM (\n",
+        "  SELECT \n",
+        "    CONCAT(source_table_catalog, '.', source_table_schema, '.', source_table_name) AS table_full_name,\n",
+        "    source_type as table_type\n",
+        "  FROM \n",
+        "    system.access.table_lineage\n",
+        "  WHERE \n",
+        "    event_time BETWEEN :date_range_start AND :date_range_end\n",
+        "    AND source_table_full_name IS NOT NULL\n",
+        "    AND (:toggle_parameter = 'Read' \n",
+        "        OR :toggle_parameter = 'Both read and write')\n",
+        "    AND (:specified_catalog = 'All Catalogs' \n",
+        "        OR source_table_catalog = :specified_catalog)\n",
+        "    AND source_type IN ('TABLE', 'STREAMING_TABLE', 'VIEW')\n",
+        "    \n",
+        "  UNION\n",
+        "  \n",
+        "  SELECT \n",
+        "    CONCAT(target_table_catalog, '.', target_table_schema, '.', target_table_name) AS table_full_name,\n",
+        "    target_type as table_type\n",
+        "  FROM \n",
+        "    system.access.table_lineage\n",
+        "  WHERE \n",
+        "    event_time BETWEEN :date_range_start AND :date_range_end\n",
+        "    AND target_table_full_name IS NOT NULL\n",
+        "    AND (:toggle_parameter = 'Write' \n",
+        "        OR :toggle_parameter = 'Both read and write')\n",
+        "    AND (:specified_catalog = 'All Catalogs' \n",
+        "        OR target_table_catalog = :specified_catalog)\n",
+        "    AND target_type IN ('TABLE', 'STREAMING_TABLE', 'VIEW')\n",
+        ") AS combined_tables;\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "d148e478",
+      "displayName": "Count of Unique Users with Table Read/Write Events Over Time",
+      "queryLines": [
+        "WITH date_granularity AS (\n",
+        "  SELECT\n",
+        "    DATE_TRUNC('month', event_time) AS truncated_date,\n",
+        "    created_by\n",
+        "  FROM\n",
+        "    system.access.table_lineage AS tl\n",
+        "  WHERE \n",
+        "    event_time >= :date_range_start\n",
+        "    AND event_time <= :date_range_end\n",
+        "    AND (\n",
+        "      (:toggle_parameter = 'Write' AND target_table_full_name IS NOT NULL AND (:specified_catalog = 'All Catalogs' OR target_table_catalog = :specified_catalog))\n",
+        "      OR\n",
+        "      (:toggle_parameter = 'Read' AND source_table_full_name IS NOT NULL AND (:specified_catalog = 'All Catalogs' OR source_table_catalog = :specified_catalog))\n",
+        "      OR\n",
+        "      (:toggle_parameter = 'Both read and write' AND \n",
+        "       (source_table_full_name IS NOT NULL OR target_table_full_name IS NOT NULL)\n",
+        "       AND (:specified_catalog = 'All Catalogs' OR target_table_catalog = :specified_catalog OR source_table_catalog = :specified_catalog))\n",
+        "    )\n",
+        ")\n",
+        "SELECT \n",
+        "  truncated_date,\n",
+        "  COUNT(DISTINCT created_by) AS distinct_users\n",
+        "FROM \n",
+        "  date_granularity\n",
+        "GROUP BY \n",
+        "  truncated_date\n",
+        "ORDER BY \n",
+        "  truncated_date;\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "e146ff65",
+      "displayName": "Most Used Schemas Broken Down by Tables",
+      "queryLines": [
+        "WITH \n",
+        "  TopSchemas AS (\n",
+        "    SELECT \n",
+        "        CONCAT(source_table_catalog, '.', source_table_schema) AS schema_name\n",
+        "    FROM \n",
+        "        system.access.table_lineage\n",
+        "    WHERE \n",
+        "        source_table_catalog IS NOT NULL\n",
+        "        AND (:specified_catalog = 'All Catalogs' OR source_table_catalog = :specified_catalog)\n",
+        "        AND :date_range_start <= event_date AND event_date <= :date_range_end\n",
+        "    GROUP BY \n",
+        "        schema_name\n",
+        "    ORDER BY \n",
+        "        COUNT(*) DESC\n",
+        "    LIMIT 10\n",
+        "  ),\n",
+        "  SchemaTablePairs AS (\n",
+        "    SELECT\n",
+        "      CONCAT(source_table_catalog, '.', source_table_schema) AS schema_name,\n",
+        "      source_table_name AS table_name\n",
+        "    FROM \n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      CONCAT(source_table_catalog, '.', source_table_schema) IN (SELECT schema_name FROM TopSchemas)\n",
+        "      AND :date_range_start <= event_date AND event_date <= :date_range_end\n",
+        "  ),\n",
+        "  AggregatedUsage AS (\n",
+        "    SELECT\n",
+        "      schema_name,\n",
+        "      table_name,\n",
+        "      COUNT(*) AS usage_count\n",
+        "    FROM \n",
+        "      SchemaTablePairs\n",
+        "    GROUP BY \n",
+        "      schema_name, table_name\n",
+        "  ),\n",
+        "  RankedTables AS (\n",
+        "    SELECT\n",
+        "      schema_name,\n",
+        "      table_name,\n",
+        "      usage_count,\n",
+        "      ROW_NUMBER() OVER (PARTITION BY schema_name ORDER BY usage_count DESC) AS table_rank\n",
+        "    FROM \n",
+        "      AggregatedUsage\n",
+        "  ),\n",
+        "  TopTables AS (\n",
+        "    SELECT\n",
+        "      schema_name,\n",
+        "      table_name,\n",
+        "      usage_count,\n",
+        "      'Top' AS category\n",
+        "    FROM \n",
+        "      RankedTables\n",
+        "    WHERE \n",
+        "      table_rank <= 9\n",
+        "  ),\n",
+        "  OtherUsage AS (\n",
+        "    SELECT\n",
+        "      schema_name,\n",
+        "      'Other Tables' AS table_name,\n",
+        "      SUM(usage_count) AS usage_count,\n",
+        "      'Other' AS category\n",
+        "    FROM \n",
+        "      RankedTables\n",
+        "    WHERE \n",
+        "      table_rank >= 10\n",
+        "    GROUP BY \n",
+        "      schema_name\n",
+        "  ),\n",
+        "  FinalResult AS (\n",
+        "    SELECT * FROM TopTables\n",
+        "    UNION ALL\n",
+        "    SELECT * FROM OtherUsage\n",
+        "  )\n",
+        "SELECT \n",
+        "  schema_name,\n",
+        "  table_name,\n",
+        "  usage_count,\n",
+        "  category\n",
+        "FROM \n",
+        "  FinalResult\n",
+        "ORDER BY\n",
+        "  schema_name,\n",
+        "  usage_count DESC;"
+      ],
+      "parameters": [
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-12M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/s"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "98a43494",
+      "displayName": "Count of Tables with Usage Over Time",
+      "queryLines": [
+        "WITH combined_tables AS (\n",
+        "  SELECT \n",
+        "    event_time,\n",
+        "    CONCAT(source_table_catalog, '.', source_table_schema, '.', source_table_name) AS table_full_name,\n",
+        "    source_type as table_type\n",
+        "  FROM \n",
+        "    system.access.table_lineage\n",
+        "  WHERE \n",
+        "    event_time BETWEEN :date_range_start AND :date_range_end\n",
+        "    AND source_table_full_name IS NOT NULL\n",
+        "    AND (:toggle_parameter = 'Read' \n",
+        "        OR :toggle_parameter = 'Both read and write')\n",
+        "    AND (:specified_catalog = 'All Catalogs' \n",
+        "        OR source_table_catalog = :specified_catalog)\n",
+        "    AND source_type IN ('TABLE', 'STREAMING_TABLE', 'VIEW')\n",
+        "    \n",
+        "  UNION\n",
+        "  \n",
+        "  SELECT \n",
+        "    event_time,\n",
+        "    CONCAT(target_table_catalog, '.', target_table_schema, '.', target_table_name) AS table_full_name,\n",
+        "    target_type as table_type\n",
+        "  FROM \n",
+        "    system.access.table_lineage\n",
+        "  WHERE \n",
+        "    event_time BETWEEN :date_range_start AND :date_range_end\n",
+        "    AND target_table_full_name IS NOT NULL\n",
+        "    AND (:toggle_parameter = 'Write' \n",
+        "        OR :toggle_parameter = 'Both read and write')\n",
+        "    AND (:specified_catalog = 'All Catalogs' \n",
+        "        OR target_table_catalog = :specified_catalog)\n",
+        "    AND target_type IN ('TABLE', 'STREAMING_TABLE', 'VIEW')\n",
+        ")\n",
+        "\n",
+        "SELECT \n",
+        "  DATE_TRUNC('month', event_time) as period,\n",
+        "  COUNT(DISTINCT table_full_name) as distinct_tables\n",
+        "FROM combined_tables\n",
+        "GROUP BY period\n",
+        "ORDER BY period;"
+      ],
+      "parameters": [
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/M"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "toggle_parameter",
+          "keyword": "toggle_parameter",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Both read and write"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "specified_catalog",
+          "keyword": "specified_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "All Catalogs"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "b0b453d8",
+      "displayName": "New Page",
+      "layout": [
+        {
+          "widget": {
+            "name": "2f8e359e",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8813a997a28b7577823107_date_range_start",
+                "query": {
+                  "datasetName": "dc47e430",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8b1f60aace521daa507109_date_range_start",
+                "query": {
+                  "datasetName": "3cfa719f",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e994c511aaca081f069a96bcfe4_date_range_start",
+                "query": {
+                  "datasetName": "44546bb8",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e9a297c1588bf048cf0a12d1907_date_range_start",
+                "query": {
+                  "datasetName": "36bacee5",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4fc14c011d7b9d1f075e64e08c18_start_date",
+                "query": {
+                  "datasetName": "b411d9fc",
+                  "parameters": [
+                    {
+                      "name": "start_date",
+                      "keyword": "start_date"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef505f45c51614aa5b02b0094a1949_date_range_start",
+                "query": {
+                  "datasetName": "e73b5db2",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef50608c03197b9c936644c037cb27_date_range_start",
+                "query": {
+                  "datasetName": "d148e478",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef5067a2bd1725bf6d4e89fd79f6ae_date_range_start",
+                "query": {
+                  "datasetName": "e146ff65",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef506accc716d5a9ef657ffc631754_date_range_start",
+                "query": {
+                  "datasetName": "98a43494",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8813a997a28b7577823107_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8b1f60aace521daa507109_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e994c511aaca081f069a96bcfe4_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e9a297c1588bf048cf0a12d1907_date_range_start"
+                  },
+                  {
+                    "parameterName": "start_date",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4fc14c011d7b9d1f075e64e08c18_start_date"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef505f45c51614aa5b02b0094a1949_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef50608c03197b9c936644c037cb27_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef5067a2bd1725bf6d4e89fd79f6ae_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef506accc716d5a9ef657ffc631754_date_range_start"
+                  }
+                ]
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "DATETIME",
+                    "values": [
+                      {
+                        "value": "now-60d/d"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Start Date:"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 17,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "ab9569e0",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8813a997a28b7577823107_date_range_end",
+                "query": {
+                  "datasetName": "dc47e430",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8b1f60aace521daa507109_date_range_end",
+                "query": {
+                  "datasetName": "3cfa719f",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e994c511aaca081f069a96bcfe4_date_range_end",
+                "query": {
+                  "datasetName": "44546bb8",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e9a297c1588bf048cf0a12d1907_date_range_end",
+                "query": {
+                  "datasetName": "36bacee5",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4fc14c011d7b9d1f075e64e08c18_end_date",
+                "query": {
+                  "datasetName": "b411d9fc",
+                  "parameters": [
+                    {
+                      "name": "end_date",
+                      "keyword": "end_date"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef505f45c51614aa5b02b0094a1949_date_range_end",
+                "query": {
+                  "datasetName": "e73b5db2",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef50608c03197b9c936644c037cb27_date_range_end",
+                "query": {
+                  "datasetName": "d148e478",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef5067a2bd1725bf6d4e89fd79f6ae_date_range_end",
+                "query": {
+                  "datasetName": "e146ff65",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef506accc716d5a9ef657ffc631754_date_range_end",
+                "query": {
+                  "datasetName": "98a43494",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8813a997a28b7577823107_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8b1f60aace521daa507109_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e994c511aaca081f069a96bcfe4_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e9a297c1588bf048cf0a12d1907_date_range_end"
+                  },
+                  {
+                    "parameterName": "end_date",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4fc14c011d7b9d1f075e64e08c18_end_date"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef505f45c51614aa5b02b0094a1949_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef50608c03197b9c936644c037cb27_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef5067a2bd1725bf6d4e89fd79f6ae_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef506accc716d5a9ef657ffc631754_date_range_end"
+                  }
+                ]
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "DATETIME",
+                    "values": [
+                      {
+                        "value": "now/s"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "End Date:"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 17,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "8a9eeb95",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dc47e430",
+                  "fields": [
+                    {
+                      "name": "full_name",
+                      "expression": "`full_name`"
+                    },
+                    {
+                      "name": "usage_count",
+                      "expression": "`usage_count`"
+                    },
+                    {
+                      "name": "owner_name",
+                      "expression": "`owner_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "full_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Full Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "full_name"
+                  },
+                  {
+                    "fieldName": "usage_count",
+                    "numberFormat": "0,0",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Usage Count",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "usage_count"
+                  },
+                  {
+                    "fieldName": "owner_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100002,
+                    "title": "Owner Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "owner_name"
+                  }
+                ]
+              },
+              "invisibleColumns": [
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "catalog_name",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100003,
+                  "title": "catalog_name",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "schema_name",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100004,
+                  "title": "schema_name",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "table_name",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100005,
+                  "title": "table_name",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                }
+              ],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Most Used Tables",
+                "showDescription": true,
+                "description": "Identify tables with the most usage (reads/writes)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 38,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "59ea6979",
+            "queries": [
+              {
+                "name": "dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d9317db8ee8407c9f7522f2_operation",
+                "query": {
+                  "datasetName": "2de138be",
+                  "fields": [
+                    {
+                      "name": "operation",
+                      "expression": "`operation`"
+                    },
+                    {
+                      "name": "operation_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8813a997a28b7577823107_toggle_parameter",
+                "query": {
+                  "datasetName": "dc47e430",
+                  "parameters": [
+                    {
+                      "name": "toggle_parameter",
+                      "keyword": "toggle_parameter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8b1f60aace521daa507109_toggle_parameter",
+                "query": {
+                  "datasetName": "3cfa719f",
+                  "parameters": [
+                    {
+                      "name": "toggle_parameter",
+                      "keyword": "toggle_parameter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e994c511aaca081f069a96bcfe4_toggle_parameter",
+                "query": {
+                  "datasetName": "44546bb8",
+                  "parameters": [
+                    {
+                      "name": "toggle_parameter",
+                      "keyword": "toggle_parameter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e9a297c1588bf048cf0a12d1907_toggle_parameter",
+                "query": {
+                  "datasetName": "36bacee5",
+                  "parameters": [
+                    {
+                      "name": "toggle_parameter",
+                      "keyword": "toggle_parameter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4fc14c011d7b9d1f075e64e08c18_toggle_parameter",
+                "query": {
+                  "datasetName": "b411d9fc",
+                  "parameters": [
+                    {
+                      "name": "toggle_parameter",
+                      "keyword": "toggle_parameter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef505f45c51614aa5b02b0094a1949_toggle_parameter",
+                "query": {
+                  "datasetName": "e73b5db2",
+                  "parameters": [
+                    {
+                      "name": "toggle_parameter",
+                      "keyword": "toggle_parameter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef50608c03197b9c936644c037cb27_toggle_parameter",
+                "query": {
+                  "datasetName": "d148e478",
+                  "parameters": [
+                    {
+                      "name": "toggle_parameter",
+                      "keyword": "toggle_parameter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef506accc716d5a9ef657ffc631754_toggle_parameter",
+                "query": {
+                  "datasetName": "98a43494",
+                  "parameters": [
+                    {
+                      "name": "toggle_parameter",
+                      "keyword": "toggle_parameter"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "toggle_parameter",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8813a997a28b7577823107_toggle_parameter"
+                  },
+                  {
+                    "parameterName": "toggle_parameter",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8b1f60aace521daa507109_toggle_parameter"
+                  },
+                  {
+                    "fieldName": "operation",
+                    "displayName": "operation",
+                    "queryName": "dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d9317db8ee8407c9f7522f2_operation"
+                  },
+                  {
+                    "parameterName": "toggle_parameter",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e994c511aaca081f069a96bcfe4_toggle_parameter"
+                  },
+                  {
+                    "parameterName": "toggle_parameter",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e9a297c1588bf048cf0a12d1907_toggle_parameter"
+                  },
+                  {
+                    "parameterName": "toggle_parameter",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4fc14c011d7b9d1f075e64e08c18_toggle_parameter"
+                  },
+                  {
+                    "parameterName": "toggle_parameter",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef505f45c51614aa5b02b0094a1949_toggle_parameter"
+                  },
+                  {
+                    "parameterName": "toggle_parameter",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef50608c03197b9c936644c037cb27_toggle_parameter"
+                  },
+                  {
+                    "parameterName": "toggle_parameter",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef506accc716d5a9ef657ffc631754_toggle_parameter"
+                  }
+                ]
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "Read"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filter Usage by Reads or Writes:",
+                "showDescription": false,
+                "description": ""
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 15,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "05994790",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "3cfa719f",
+                  "fields": [
+                    {
+                      "name": "full_name",
+                      "expression": "`full_name`"
+                    },
+                    {
+                      "name": "usage_count",
+                      "expression": "`usage_count`"
+                    },
+                    {
+                      "name": "owner_names",
+                      "expression": "`owner_names`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "full_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Full Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "full_name"
+                  },
+                  {
+                    "fieldName": "usage_count",
+                    "numberFormat": "0,0",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Usage Count",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "usage_count"
+                  },
+                  {
+                    "fieldName": "owner_names",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100002,
+                    "title": "Owner Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "owner_names"
+                  }
+                ]
+              },
+              "invisibleColumns": [
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "catalog_name",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100003,
+                  "title": "catalog_name",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "schema_name",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100004,
+                  "title": "schema_name",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                }
+              ],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Most Used Schemas",
+                "showDescription": true,
+                "description": "Identify schemas with the most usage (reads/writes)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 38,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "03e562d5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "e146ff65",
+                  "fields": [
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "sum(usage_count)",
+                      "expression": "SUM(`usage_count`)"
+                    },
+                    {
+                      "name": "schema_name",
+                      "expression": "`schema_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(usage_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Usage Count"
+                },
+                "y": {
+                  "fieldName": "schema_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Schema Name"
+                },
+                "color": {
+                  "fieldName": "table_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "hide": true
+                  },
+                  "displayName": "table_name"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Highest Usage Schemas",
+                "showDescription": true,
+                "description": "Identify the schemas with the most read events in the past year"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "73602f20",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Explore the highest and lowest usage tables during the specified time range\n",
+                "\n",
+                "\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 37,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "3f2fefd7",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Overview\n",
+                "Get a high-level view of objects in your Unity Catalog metastore"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "557a74f2",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Usage\n",
+                "Understand table usage over the specified time range as determined by read/write events"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "485f97b4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "b411d9fc",
+                  "fields": [
+                    {
+                      "name": "month_start",
+                      "expression": "`month_start`"
+                    },
+                    {
+                      "name": "sum(unused_table_count)",
+                      "expression": "SUM(`unused_table_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "fieldName": "sum(unused_table_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Unused Tables"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unused Tables Over Time",
+                "showDescription": true,
+                "description": "See the changes in the count of existing tables with no usage over time"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 30,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "9ef80ca9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ade21538",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Unused Tables",
+                "showDescription": true,
+                "description": "See the count of existing tables with no usage"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 28,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "43f49792",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "cef960db",
+                  "fields": [
+                    {
+                      "name": "count(1)",
+                      "expression": "`count(1)`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(1)",
+                  "displayName": "count(1)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Tables"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "61e97f46",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "afa3d04e",
+                  "fields": [
+                    {
+                      "name": "count(1)",
+                      "expression": "`count(1)`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(1)",
+                  "rowNumber": 0,
+                  "displayName": "count(1)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Volumes"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "702c9cf4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "16a281d4",
+                  "fields": [
+                    {
+                      "name": "count(1)",
+                      "expression": "`count(1)`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(1)",
+                  "displayName": "count(1)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Functions"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "9655715d",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "36bacee5",
+                  "fields": [
+                    {
+                      "name": "distinct_users",
+                      "expression": "`distinct_users`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "distinct_users",
+                  "displayName": "distinct_users"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Active Users",
+                "showDescription": true,
+                "description": "See the count of unique users with table usage"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "0a18f99c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "e73b5db2",
+                  "fields": [
+                    {
+                      "name": "distinct_tables",
+                      "expression": "`distinct_tables`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "distinct_tables",
+                  "displayName": "distinct_tables"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Active Tables",
+                "showDescription": true,
+                "description": "See the count of unique tables with usage"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 18,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "684df873",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "44546bb8",
+                  "fields": [
+                    {
+                      "name": "full_name",
+                      "expression": "`full_name`"
+                    },
+                    {
+                      "name": "table_owner",
+                      "expression": "`table_owner`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "full_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Full Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "full_name"
+                  },
+                  {
+                    "fieldName": "table_owner",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Owner Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "table_owner"
+                  }
+                ]
+              },
+              "invisibleColumns": [
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "table_catalog",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100002,
+                  "title": "table_catalog",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "table_schema",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100003,
+                  "title": "table_schema",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                }
+              ],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Unused Schemas",
+                "showDescription": true,
+                "description": "Identify schemas with no usage (reads/writes)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 46,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "9ac8c793",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ade21538",
+                  "fields": [
+                    {
+                      "name": "full_name",
+                      "expression": "`full_name`"
+                    },
+                    {
+                      "name": "table_owner",
+                      "expression": "`table_owner`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "full_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Full Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "full_name"
+                  },
+                  {
+                    "fieldName": "table_owner",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Owner Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "table_owner"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Unused Tables",
+                "showDescription": true,
+                "description": "Identify tables with no usage (reads/writes)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 46,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "e72e3c1d",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Unity Catalog Usage"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "aabafc6a",
+            "queries": [
+              {
+                "name": "dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef503ba2c8171ab9a3da91b28e4ff4_catalog_name",
+                "query": {
+                  "datasetName": "a80ad244",
+                  "fields": [
+                    {
+                      "name": "catalog_name",
+                      "expression": "`catalog_name`"
+                    },
+                    {
+                      "name": "catalog_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8813a997a28b7577823107_specified_catalog",
+                "query": {
+                  "datasetName": "dc47e430",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8b1f60aace521daa507109_specified_catalog",
+                "query": {
+                  "datasetName": "3cfa719f",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4decb0901ae4899595ebf613a238_specified_catalog",
+                "query": {
+                  "datasetName": "cef960db",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e964aff1cddb6af818d521c0388_specified_catalog",
+                "query": {
+                  "datasetName": "afa3d04e",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e96799b177d9606876cf8d05f53_specified_catalog",
+                "query": {
+                  "datasetName": "16a281d4",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e994c511aaca081f069a96bcfe4_specified_catalog",
+                "query": {
+                  "datasetName": "44546bb8",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e9a297c1588bf048cf0a12d1907_specified_catalog",
+                "query": {
+                  "datasetName": "36bacee5",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4fc14c011d7b9d1f075e64e08c18_specified_catalog",
+                "query": {
+                  "datasetName": "b411d9fc",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef5067a2bd1725bf6d4e89fd79f6ae_specified_catalog",
+                "query": {
+                  "datasetName": "e146ff65",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef505f45c51614aa5b02b0094a1949_specified_catalog",
+                "query": {
+                  "datasetName": "e73b5db2",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef50608c03197b9c936644c037cb27_specified_catalog",
+                "query": {
+                  "datasetName": "d148e478",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef506accc716d5a9ef657ffc631754_specified_catalog",
+                "query": {
+                  "datasetName": "98a43494",
+                  "parameters": [
+                    {
+                      "name": "specified_catalog",
+                      "keyword": "specified_catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8813a997a28b7577823107_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4deb3d8b1f60aace521daa507109_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4decb0901ae4899595ebf613a238_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e964aff1cddb6af818d521c0388_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e96799b177d9606876cf8d05f53_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e994c511aaca081f069a96bcfe4_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4e9a297c1588bf048cf0a12d1907_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef4fc14c011d7b9d1f075e64e08c18_specified_catalog"
+                  },
+                  {
+                    "fieldName": "catalog_name",
+                    "displayName": "catalog_name",
+                    "queryName": "dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef503ba2c8171ab9a3da91b28e4ff4_catalog_name"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef5067a2bd1725bf6d4e89fd79f6ae_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef505f45c51614aa5b02b0094a1949_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef50608c03197b9c936644c037cb27_specified_catalog"
+                  },
+                  {
+                    "parameterName": "specified_catalog",
+                    "queryName": "parameter_dashboards/01ef4deb3d7e17c99237b5921caed442/datasets/01ef506accc716d5a9ef657ffc631754_specified_catalog"
+                  }
+                ]
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "All Catalogs"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Filter by Catalog:",
+                "showDescription": false,
+                "description": ""
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "a729374c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "d148e478",
+                  "fields": [
+                    {
+                      "name": "monthly(truncated_date)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `truncated_date`)"
+                    },
+                    {
+                      "name": "sum(distinct_users)",
+                      "expression": "SUM(`distinct_users`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(truncated_date)",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "Period"
+                  },
+                  "displayName": "Period"
+                },
+                "y": {
+                  "fieldName": "sum(distinct_users)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Count of Active Users"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": "Active Users Over Time",
+                "description": "See the changes in the count of unique users with table usage over time"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "30064afb",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "98a43494",
+                  "fields": [
+                    {
+                      "name": "monthly(period)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `period`)"
+                    },
+                    {
+                      "name": "sum(distinct_tables)",
+                      "expression": "SUM(`distinct_tables`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(period)",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "Period"
+                  },
+                  "displayName": "Period"
+                },
+                "y": {
+                  "fieldName": "sum(distinct_tables)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Count of Active Tables"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": "Active Tables Over Time",
+                "description": "See the changes in the count of unique tables with usage over time"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 20,
+            "width": 3,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}

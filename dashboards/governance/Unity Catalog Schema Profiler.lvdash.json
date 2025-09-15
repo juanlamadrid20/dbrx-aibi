@@ -1,0 +1,2143 @@
+{
+  "datasets": [
+    {
+      "name": "6021fab7",
+      "displayName": "Privileges",
+      "queryLines": [
+        "SELECT \n",
+        "    grantee,\n",
+        "    privilege_type\n",
+        "FROM \n",
+        "    system.information_schema.schema_privileges\n",
+        "WHERE \n",
+        "    concat(catalog_name, '.', schema_name) = :catalog_schema_name;"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog_schema_name",
+          "keyword": "catalog_schema_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "main.lineage"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "44fcf105",
+      "displayName": "Usage over Time",
+      "queryLines": [
+        "SELECT \n",
+        "    CASE \n",
+        "        WHEN :granularity = 'Yearly' THEN DATE_TRUNC('year', event_time)\n",
+        "        WHEN :granularity = 'Monthly' THEN DATE_TRUNC('month', event_time)\n",
+        "        WHEN :granularity = 'Weekly' THEN DATE_TRUNC('week', event_time)\n",
+        "        WHEN :granularity = 'Daily' THEN DATE_TRUNC('day', event_time)\n",
+        "        ELSE DATE_TRUNC('day', event_time) -- default to daily if no match\n",
+        "    END AS usage_date,\n",
+        "    COUNT(*) AS usage_count\n",
+        "FROM \n",
+        "    system.access.table_lineage\n",
+        "WHERE \n",
+        "    (concat(source_table_catalog, '.', source_table_schema) = :catalog_schema_name\n",
+        "    OR concat(target_table_catalog, '.', target_table_schema) = :catalog_schema_name) AND\n",
+        "    (event_time >= :date_range_start AND event_time <= :date_range_end )\n",
+        "GROUP BY \n",
+        "    usage_date\n",
+        "ORDER BY \n",
+        "    usage_date;"
+      ],
+      "parameters": [
+        {
+          "displayName": "granularity",
+          "keyword": "granularity",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "Monthly"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "catalog_schema_name",
+          "keyword": "catalog_schema_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "main."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/y"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1b13ae14",
+      "displayName": "List of Upstream Tables",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "    lat.source_table_full_name AS dependency,\n",
+        "    ist.table_owner AS owner_name\n",
+        "FROM \n",
+        "    system.access.table_lineage lat\n",
+        "INNER JOIN\n",
+        "    system.information_schema.tables ist\n",
+        "ON \n",
+        "    lat.source_table_full_name = CONCAT(ist.TABLE_CATALOG, '.', ist.TABLE_SCHEMA, '.', ist.TABLE_NAME)\n",
+        "WHERE \n",
+        "    concat(lat.target_table_catalog, '.', lat.target_table_schema) = :catalog_schema_name AND\n",
+        "    (lat.event_time >= :date_range_start AND lat.event_time <= :date_range_end ) AND\n",
+        "    lat.source_table_full_name IS NOT NULL;"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog_schema_name",
+          "keyword": "catalog_schema_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "main.lineage"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/y"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "b8075a60",
+      "displayName": "List of Downstream Tables",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "    lat.target_table_full_name AS dependency,\n",
+        "    ist.table_owner AS owner_name\n",
+        "FROM \n",
+        "    system.access.table_lineage lat\n",
+        "INNER JOIN \n",
+        "    system.information_schema.tables ist\n",
+        "ON \n",
+        "    lat.target_table_full_name = CONCAT(ist.TABLE_CATALOG, '.', ist.TABLE_SCHEMA, '.', ist.TABLE_NAME)\n",
+        "WHERE \n",
+        "    concat(lat.source_table_catalog, '.', lat.source_table_schema) = :catalog_schema_name AND\n",
+        "    (lat.event_time >= :date_range_start AND lat.event_time <= :date_range_end ) AND\n",
+        "    lat.target_table_full_name IS NOT NULL;"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog_schema_name",
+          "keyword": "catalog_schema_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "main.lineage"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/y"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a172531b",
+      "displayName": "List of Top Readers",
+      "queryLines": [
+        "SELECT\n",
+        "    CASE\n",
+        "        WHEN created_by IS NOT NULL THEN created_by \n",
+        "    END AS user,\n",
+        "    CASE\n",
+        "        WHEN created_by IS NOT NULL THEN COUNT(*)\n",
+        "    END AS read_count\n",
+        "FROM \n",
+        "    system.access.table_lineage\n",
+        "WHERE \n",
+        "    concat(source_table_catalog, '.', source_table_schema) = :catalog_schema_name AND\n",
+        "    (event_time >= :date_range_start AND event_time <= :date_range_end ) AND created_by IS NOT NULL\n",
+        "GROUP BY \n",
+        "    created_by\n",
+        "ORDER BY \n",
+        "    read_count DESC\n",
+        "LIMIT 100;"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog_schema_name",
+          "keyword": "catalog_schema_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "main.lineage"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/y"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5365cfed",
+      "displayName": "List of Top Contributors",
+      "queryLines": [
+        "SELECT\n",
+        "    CASE\n",
+        "        WHEN created_by IS NOT NULL THEN created_by \n",
+        "    END AS user,\n",
+        "    CASE\n",
+        "        WHEN created_by IS NOT NULL THEN COUNT(*)\n",
+        "    END AS write_count\n",
+        "FROM \n",
+        "    system.access.table_lineage\n",
+        "WHERE\n",
+        "    concat(target_table_catalog, '.', target_table_schema) = :catalog_schema_name AND\n",
+        "    (event_time >= :date_range_start AND event_time <= :date_range_end ) AND created_by IS NOT NULL\n",
+        "GROUP BY \n",
+        "    created_by\n",
+        "ORDER BY \n",
+        "    write_count DESC\n",
+        "LIMIT 100;\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog_schema_name",
+          "keyword": "catalog_schema_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "main.lineage"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/y"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "92fbe671",
+      "displayName": "Schema Name Options",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "    CONCAT(CATALOG_NAME, '.', SCHEMA_NAME) AS catalog_schema\n",
+        "FROM\n",
+        "    system.information_schema.schemata\n",
+        "WHERE\n",
+        "    SCHEMA_NAME IS NOT NULL"
+      ]
+    },
+    {
+      "name": "5b9d38ad",
+      "displayName": "Granularity Options",
+      "queryLines": [
+        "SELECT \"Yearly\" as granularity\n",
+        "UNION ALL\n",
+        "SELECT \"Monthly\"\n",
+        "UNION ALL\n",
+        "SELECT \"Weekly\"\n",
+        "UNION ALL\n",
+        "SELECT \"Daily\""
+      ]
+    },
+    {
+      "name": "64b1c381",
+      "displayName": "List of Upstream Entities",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "    lat.entity_id AS dependency,\n",
+        "    lat.created_by AS owner_name,\n",
+        "    CASE\n",
+        "        WHEN lat.entity_type = 'DBSQL_DASHBOARD' THEN 'Legacy Dashboard'\n",
+        "        WHEN lat.entity_type = 'DBSQL_QUERY' THEN 'SQL Query'\n",
+        "        WHEN lat.entity_type = 'DASHBOARD_V3' THEN 'Dashboard'\n",
+        "        WHEN lat.entity_type = 'PIPELINE' THEN 'Pipeline'\n",
+        "        WHEN lat.entity_type = 'JOB' THEN 'Job'\n",
+        "        WHEN lat.entity_type = 'NOTEBOOK' THEN 'Notebook'\n",
+        "        ELSE lat.entity_type\n",
+        "    END AS dependency_type\n",
+        "FROM \n",
+        "    system.access.table_lineage lat\n",
+        "WHERE \n",
+        "    concat(lat.target_table_catalog, '.', lat.target_table_schema) = :catalog_schema_name AND\n",
+        "    (lat.event_time >= :date_range_start AND lat.event_time <= :date_range_end ) AND\n",
+        "    lat.source_table_full_name IS NULL AND lat.entity_id IS NOT NULL;"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog_schema_name",
+          "keyword": "catalog_schema_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "main.lineage"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/y"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "84fc172c",
+      "displayName": "List of Downstream Entities",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "    lat.entity_id AS dependency,\n",
+        "    lat.created_by AS owner_name,\n",
+        "    CASE\n",
+        "        WHEN lat.entity_type = 'DBSQL_DASHBOARD' THEN 'Legacy Dashboard'\n",
+        "        WHEN lat.entity_type = 'DBSQL_QUERY' THEN 'SQL Query'\n",
+        "        WHEN lat.entity_type = 'DASHBOARD_V3' THEN 'Dashboard'\n",
+        "        WHEN lat.entity_type = 'PIPELINE' THEN 'Pipeline'\n",
+        "        WHEN lat.entity_type = 'JOB' THEN 'Job'\n",
+        "        WHEN lat.entity_type = 'NOTEBOOK' THEN 'Notebook'\n",
+        "        ELSE lat.entity_type\n",
+        "    END AS dependency_type\n",
+        "FROM \n",
+        "    system.access.table_lineage lat\n",
+        "WHERE \n",
+        "    concat(lat.source_table_catalog, '.', lat.source_table_schema) = :catalog_schema_name AND\n",
+        "    (lat.event_time >= :date_range_start AND lat.event_time <= :date_range_end ) AND\n",
+        "    lat.target_table_full_name IS NULL AND lat.entity_id IS NOT NULL;"
+      ],
+      "parameters": [
+        {
+          "displayName": "catalog_schema_name",
+          "keyword": "catalog_schema_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "main.lineage"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_start",
+          "keyword": "date_range_start",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now/y"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "date_range_end",
+          "keyword": "date_range_end",
+          "dataType": "DATETIME",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATETIME",
+              "values": [
+                {
+                  "value": "now-1M/M"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "8c949ad5",
+      "displayName": "New Page",
+      "layout": [
+        {
+          "widget": {
+            "name": "646ce2df",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab21d558684b0a7b925148e_date_range_start",
+                "query": {
+                  "datasetName": "44fcf105",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab51af981081b0ae141e79e_date_range_start",
+                "query": {
+                  "datasetName": "1b13ae14",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab81925a6a663ac65f66890_date_range_start",
+                "query": {
+                  "datasetName": "b8075a60",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abc102bb17663336b57687a_date_range_start",
+                "query": {
+                  "datasetName": "a172531b",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abe1db1a7fc24c38fc8bee6_date_range_start",
+                "query": {
+                  "datasetName": "5365cfed",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac7125a8a66357495ffacd6_date_range_start",
+                "query": {
+                  "datasetName": "64b1c381",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac919f5a7b873d358623573_date_range_start",
+                "query": {
+                  "datasetName": "84fc172c",
+                  "parameters": [
+                    {
+                      "name": "date_range_start",
+                      "keyword": "date_range_start"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab21d558684b0a7b925148e_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab51af981081b0ae141e79e_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab81925a6a663ac65f66890_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abc102bb17663336b57687a_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abe1db1a7fc24c38fc8bee6_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac7125a8a66357495ffacd6_date_range_start"
+                  },
+                  {
+                    "parameterName": "date_range_start",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac919f5a7b873d358623573_date_range_start"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Start Date:"
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "DATETIME",
+                    "values": [
+                      {
+                        "value": "now-12M/M"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "170d2ac2",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab21d558684b0a7b925148e_date_range_end",
+                "query": {
+                  "datasetName": "44fcf105",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab51af981081b0ae141e79e_date_range_end",
+                "query": {
+                  "datasetName": "1b13ae14",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab81925a6a663ac65f66890_date_range_end",
+                "query": {
+                  "datasetName": "b8075a60",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abc102bb17663336b57687a_date_range_end",
+                "query": {
+                  "datasetName": "a172531b",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abe1db1a7fc24c38fc8bee6_date_range_end",
+                "query": {
+                  "datasetName": "5365cfed",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac7125a8a66357495ffacd6_date_range_end",
+                "query": {
+                  "datasetName": "64b1c381",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac919f5a7b873d358623573_date_range_end",
+                "query": {
+                  "datasetName": "84fc172c",
+                  "parameters": [
+                    {
+                      "name": "date_range_end",
+                      "keyword": "date_range_end"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab21d558684b0a7b925148e_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab51af981081b0ae141e79e_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab81925a6a663ac65f66890_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abc102bb17663336b57687a_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abe1db1a7fc24c38fc8bee6_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac7125a8a66357495ffacd6_date_range_end"
+                  },
+                  {
+                    "parameterName": "date_range_end",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac919f5a7b873d358623573_date_range_end"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "End Date:"
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "DATETIME",
+                    "values": [
+                      {
+                        "value": "now/s"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "4f2fb7af",
+            "queries": [
+              {
+                "name": "dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac11dc186cc04966f19b75f_catalog_schema",
+                "query": {
+                  "datasetName": "92fbe671",
+                  "fields": [
+                    {
+                      "name": "catalog_schema",
+                      "expression": "`catalog_schema`"
+                    },
+                    {
+                      "name": "catalog_schema_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac919f5a7b873d358623573_catalog_schema_name",
+                "query": {
+                  "datasetName": "84fc172c",
+                  "parameters": [
+                    {
+                      "name": "catalog_schema_name",
+                      "keyword": "catalog_schema_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac7125a8a66357495ffacd6_catalog_schema_name",
+                "query": {
+                  "datasetName": "64b1c381",
+                  "parameters": [
+                    {
+                      "name": "catalog_schema_name",
+                      "keyword": "catalog_schema_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abe1db1a7fc24c38fc8bee6_catalog_schema_name",
+                "query": {
+                  "datasetName": "5365cfed",
+                  "parameters": [
+                    {
+                      "name": "catalog_schema_name",
+                      "keyword": "catalog_schema_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abc102bb17663336b57687a_catalog_schema_name",
+                "query": {
+                  "datasetName": "a172531b",
+                  "parameters": [
+                    {
+                      "name": "catalog_schema_name",
+                      "keyword": "catalog_schema_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab81925a6a663ac65f66890_catalog_schema_name",
+                "query": {
+                  "datasetName": "b8075a60",
+                  "parameters": [
+                    {
+                      "name": "catalog_schema_name",
+                      "keyword": "catalog_schema_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab51af981081b0ae141e79e_catalog_schema_name",
+                "query": {
+                  "datasetName": "1b13ae14",
+                  "parameters": [
+                    {
+                      "name": "catalog_schema_name",
+                      "keyword": "catalog_schema_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab21d558684b0a7b925148e_catalog_schema_name",
+                "query": {
+                  "datasetName": "44fcf105",
+                  "parameters": [
+                    {
+                      "name": "catalog_schema_name",
+                      "keyword": "catalog_schema_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab0137893e88e4a88962ffc_catalog_schema_name",
+                "query": {
+                  "datasetName": "6021fab7",
+                  "parameters": [
+                    {
+                      "name": "catalog_schema_name",
+                      "keyword": "catalog_schema_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "catalog_schema",
+                    "displayName": "catalog_schema",
+                    "queryName": "dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac11dc186cc04966f19b75f_catalog_schema"
+                  },
+                  {
+                    "parameterName": "catalog_schema_name",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac919f5a7b873d358623573_catalog_schema_name"
+                  },
+                  {
+                    "parameterName": "catalog_schema_name",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac7125a8a66357495ffacd6_catalog_schema_name"
+                  },
+                  {
+                    "parameterName": "catalog_schema_name",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abe1db1a7fc24c38fc8bee6_catalog_schema_name"
+                  },
+                  {
+                    "parameterName": "catalog_schema_name",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797abc102bb17663336b57687a_catalog_schema_name"
+                  },
+                  {
+                    "parameterName": "catalog_schema_name",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab81925a6a663ac65f66890_catalog_schema_name"
+                  },
+                  {
+                    "parameterName": "catalog_schema_name",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab51af981081b0ae141e79e_catalog_schema_name"
+                  },
+                  {
+                    "parameterName": "catalog_schema_name",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab21d558684b0a7b925148e_catalog_schema_name"
+                  },
+                  {
+                    "parameterName": "catalog_schema_name",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab0137893e88e4a88962ffc_catalog_schema_name"
+                  }
+                ]
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "main.tpcds_sf1_delta"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Select a Schema:",
+                "showDescription": true,
+                "description": "Choose a schema (catalog.schema) to understand"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "190bc3ba",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "5365cfed",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Contributors",
+                "showDescription": true,
+                "description": "See the count of unique users who wrote to or modified tables in this schema"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "dde03c79",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "5365cfed",
+                  "fields": [
+                    {
+                      "name": "user",
+                      "expression": "`user`"
+                    },
+                    {
+                      "name": "write_count",
+                      "expression": "`write_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "user",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "User",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "user"
+                  },
+                  {
+                    "fieldName": "write_count",
+                    "numberFormat": "0",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Number of Writes",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "write_count"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Top Contributors",
+                "showDescription": true,
+                "description": "Identify the users who wrote to or modified tables in this schema the most"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "0bb53d42",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "1b13ae14",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Upstream Tables",
+                "showDescription": true,
+                "description": "See the count of tables which the specified schema depends on"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "eb969d37",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "1b13ae14",
+                  "fields": [
+                    {
+                      "name": "dependency",
+                      "expression": "`dependency`"
+                    },
+                    {
+                      "name": "owner_name",
+                      "expression": "`owner_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "dependency",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Full Table Name",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "dependency"
+                  },
+                  {
+                    "fieldName": "owner_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Table Owner",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "owner_name"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Upstream Tables",
+                "showDescription": true,
+                "description": "Identify tables which the specified schema depends on"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 22,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "f1016745",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "64b1c381",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Number of Upstream Entities",
+                "showDescription": true,
+                "description": "See the count of entities which the specified schema depends on"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 29,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "bb9b64f1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "64b1c381",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "dependency_type",
+                      "expression": "`dependency_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": " "
+                },
+                "color": {
+                  "fieldName": "dependency_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Dependency Type"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Distribution of Upstream Entitites",
+                "showDescription": true,
+                "description": "Identify entities which the specified schema depends on"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 31,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "804ca82a",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "6021fab7",
+                  "fields": [
+                    {
+                      "name": "grantee",
+                      "expression": "`grantee`"
+                    },
+                    {
+                      "name": "privilege_type",
+                      "expression": "`privilege_type`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "grantee",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Principal",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "grantee"
+                  },
+                  {
+                    "fieldName": "privilege_type",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Privilege Type",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "privilege_type"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Principals with Access",
+                "showDescription": true,
+                "description": "Identify principals with privileges to this schema"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 38,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "5b711af4",
+            "queries": [
+              {
+                "name": "dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac41a40ae80efd48e368540_granularity",
+                "query": {
+                  "datasetName": "5b9d38ad",
+                  "fields": [
+                    {
+                      "name": "granularity",
+                      "expression": "`granularity`"
+                    },
+                    {
+                      "name": "granularity_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab21d558684b0a7b925148e_granularity",
+                "query": {
+                  "datasetName": "44fcf105",
+                  "parameters": [
+                    {
+                      "name": "granularity",
+                      "keyword": "granularity"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "granularity",
+                    "displayName": "granularity",
+                    "queryName": "dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ac41a40ae80efd48e368540_granularity"
+                  },
+                  {
+                    "parameterName": "granularity",
+                    "queryName": "parameter_dashboards/01ef48797a4b1ee4bd7075121b9499d1/datasets/01ef48797ab21d558684b0a7b925148e_granularity"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Granularity:"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "36c2a384",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "44fcf105",
+                  "fields": [
+                    {
+                      "name": "usage_date",
+                      "expression": "`usage_date`"
+                    },
+                    {
+                      "name": "sum(usage_count)",
+                      "expression": "SUM(`usage_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "usage_date",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "fieldName": "sum(usage_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Usage Count"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Schema Usage Over Time",
+                "showDescription": true,
+                "description": "See the usage of this schema over the specified time range"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "0a1ede76",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a172531b",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Readers",
+                "showDescription": true,
+                "description": "See the count of unique users who read from tables in this schema"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 11,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "10cfe219",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a172531b",
+                  "fields": [
+                    {
+                      "name": "user",
+                      "expression": "`user`"
+                    },
+                    {
+                      "name": "read_count",
+                      "expression": "`read_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "user",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "User",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "user"
+                  },
+                  {
+                    "fieldName": "read_count",
+                    "numberFormat": "0,0",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Number of Reads",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "read_count"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Top Readers",
+                "showDescription": true,
+                "description": "Identify the users who read from tables in this schema the most"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 13,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "c3ebbfd9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "b8075a60",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Count of Downstream Tables",
+                "showDescription": true,
+                "description": "See the count of tables which are dependent on the specified schema"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 20,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "10119767",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "b8075a60",
+                  "fields": [
+                    {
+                      "name": "dependency",
+                      "expression": "`dependency`"
+                    },
+                    {
+                      "name": "owner_name",
+                      "expression": "`owner_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "dependency",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Full Table Name",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "dependency"
+                  },
+                  {
+                    "fieldName": "owner_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Table Owner",
+                    "allowSearch": true,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "owner_name"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": true,
+              "frame": {
+                "showTitle": true,
+                "title": "Downstream Tables",
+                "showDescription": true,
+                "description": "Identify tables which are dependent on the specified schema"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 22,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "c78d9a04",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "84fc172c",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count of Records"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Number of Downstream Entities",
+                "showDescription": true,
+                "description": "See the count of entities which are dependent on the specified schema"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 29,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "23001ee7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "84fc172c",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "dependency_type",
+                      "expression": "`dependency_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": " "
+                },
+                "color": {
+                  "fieldName": "dependency_type",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Notebook",
+                        "color": "#FF3621"
+                      },
+                      {
+                        "value": "Job",
+                        "color": "#00A972"
+                      },
+                      {
+                        "value": "Legacy Dashboard",
+                        "color": "#919191"
+                      },
+                      {
+                        "value": "Dashboard",
+                        "color": "#FFAB00"
+                      }
+                    ]
+                  },
+                  "displayName": "Dependency Type"
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Distribution of Downstream Entitites",
+                "showDescription": true,
+                "description": "Identify entities which are dependent on the specified schema"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 31,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "698f27cd",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Unity Catalog Schema Profiler"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "cf4ff7a9",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### How to use this dashboard:\n",
+                "Choose a schema and get a breakdown of users, dependencies, access, and overall usage"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}
