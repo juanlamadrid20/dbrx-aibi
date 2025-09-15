@@ -1,0 +1,3238 @@
+{
+  "datasets": [
+    {
+      "name": "1d8e639a",
+      "displayName": "query-history-trends",
+      "queryLines": [
+        "WITH query_history AS (\n",
+        "  SELECT\n",
+        "    statement_id,\n",
+        "    executed_by,\n",
+        "    statement_text,\n",
+        "    account_id, \n",
+        "    workspace_id, \n",
+        "    compute.warehouse_id AS warehouse_id,\n",
+        "    execution_status,\n",
+        "    f.statement_type,\n",
+        "    client_application,\n",
+        "    COALESCE(error_message, 'None') AS error_message,\n",
+        "    COALESCE(try_divide(total_duration_ms, 1000), 0) AS QueryRuntimeSeconds,\n",
+        "    COALESCE(try_divide(total_task_duration_ms, 1000), 0) AS CPUTotalExecutionTime,\n",
+        "    COALESCE(try_divide(execution_duration_ms, 1000), 0) AS ExecutionQueryTime,\n",
+        "    COALESCE(try_divide(compilation_duration_ms, 1000), 0) AS CompilationQueryTime,\n",
+        "    COALESCE(try_divide(waiting_at_capacity_duration_ms, 1000), 0) AS QueueQueryTime,\n",
+        "    COALESCE(try_divide(waiting_for_compute_duration_ms, 1000), 0) AS StartUpQueryTime,\n",
+        "    COALESCE(try_divide(result_fetch_duration_ms, 1000), 0) AS ResultFetchTime,\n",
+        "    start_time,\n",
+        "    end_time,\n",
+        "    update_time,\n",
+        "    COALESCE(read_bytes, 0) AS read_bytes,\n",
+        "    COALESCE(read_io_cache_percent, 0) AS read_io_cache_percent,\n",
+        "    from_result_cache,\n",
+        "    COALESCE(spilled_local_bytes, 0) AS spilled_local_bytes,\n",
+        "    COALESCE(total_task_duration_ms / total_duration_ms, NULL) AS TotalCPUTime_To_Execution_Time_Ratio, \n",
+        "    COALESCE(waiting_at_capacity_duration_ms / total_duration_ms, 0) AS ProportionQueueTime,\n",
+        "    AVG(try_divide(total_duration_ms, 1000))  OVER () AS WarehouseAvgQueryRuntime,\n",
+        "    AVG(try_divide(waiting_at_capacity_duration_ms, 1000)) OVER () AS WarehouseAvgQueueTime,\n",
+        "    AVG(COALESCE(try_divide(waiting_at_capacity_duration_ms, 1000) / try_divide(total_duration_ms, 1000), 0)) OVER () AS WarehouseAvgProportionTimeQueueing,\n",
+        "    SUM(try_divide(total_duration_ms, 1000)) OVER () AS TotalUsedTimeInWarehouse,\n",
+        "    SUM(try_divide(total_duration_ms, 1000)) OVER (PARTITION BY statement_text) AS TotalStatementTextTimeUsed,\n",
+        "    try_divide(try_divide(total_duration_ms, 1000), SUM(try_divide(total_duration_ms, 1000)) OVER ()) AS ProportionOfWarehouseTimeUsedByQuery,\n",
+        "    CASE WHEN read_bytes > 0 THEN try_divide(read_bytes,(1024*1024*1024)) ELSE 0 END AS ReadDataAmountInGB,\n",
+        "    CASE WHEN read_io_cache_percent > 0 THEN 'Used Cache' ELSE 'No Cache' END AS UsedCacheFlag,\n",
+        "    CASE WHEN spilled_local_bytes > 0 THEN 'Spilled Data To Disk' ELSE 'No Spill' END AS HasSpillFlag,\n",
+        "    CASE WHEN read_bytes > 0 THEN 'Did Read Data' ELSE 'No Data Read' END AS ReadDataFlag,\n",
+        "    CASE WHEN CPUTotalExecutionTime > 0 THEN 'UsedWorkerTasks' ELSE 'NoWorkers' END AS UsedWorkerTasksFlag,\n",
+        "    CASE WHEN spilled_local_bytes > 0 THEN 1 ELSE 0 END AS Calc_HasSpillFlag,\n",
+        "    CASE WHEN read_bytes > 0 THEN 0.25 ELSE 0 END AS Calc_ReadDataFlag,\n",
+        "    CASE WHEN CPUTotalExecutionTime > 0 THEN 0.25 ELSE 0 END AS Calc_UsedWorkerTasksFlag,\n",
+        "    substr(statement_text, INSTR(statement_text, '/*') + 2, INSTR(statement_text, '*/') - INSTR(statement_text, '/*') - 2) AS dbt_metadata_json\n",
+        "  FROM system.query.history f\n",
+        "  WHERE compute.warehouse_id = :warehouse_id\n",
+        "    AND start_time > date_add(current_date(), -7) \n",
+        "    AND statement_type IS NOT NULL\n",
+        ")\n",
+        "\n",
+        "SELECT \n",
+        "  to_date(start_time) AS start_date, \n",
+        "  DATE_TRUNC('hour', start_time) AS start_hour,\n",
+        "  workspace_id, \n",
+        "  account_id, \n",
+        "  warehouse_id, \n",
+        "  avg(QueryRuntimeSeconds), \n",
+        "  avg(ResultFetchTime), \n",
+        "  avg(QueueQueryTime), \n",
+        "  percentile(QueryRuntimeSeconds, 0.95) AS p95queryRuntimeSeconds, \n",
+        "  percentile(QueryRuntimeSeconds, 0.5) AS p50queryRuntimeSeconds\n",
+        "FROM query_history\n",
+        "GROUP BY to_date(start_time), DATE_TRUNC('hour', start_time), workspace_id, account_id, warehouse_id"
+      ],
+      "parameters": [
+        {
+          "displayName": "warehouse_id",
+          "keyword": "warehouse_id",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "4b9b953939869799"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "43fec0b8",
+      "displayName": "top-interactive",
+      "queryLines": [
+        "with usage as (\n",
+        "    SELECT\n",
+        "  --   u.record_id,\n",
+        "  u.account_id, \n",
+        "  u.cloud, \n",
+        "  u.workspace_id,\n",
+        "  u.sku_name,\n",
+        "  c.cluster_id,\n",
+        "  c.cluster_name,\n",
+        "  c.owned_by,\n",
+        "  c.driver_node_type,\n",
+        "  c.worker_node_type,\n",
+        "  c.min_autoscale_workers,\n",
+        "  c.max_autoscale_workers,\n",
+        "  c.auto_termination_minutes,\n",
+        "  c.dbr_version,\n",
+        "  --   c.change_time,\n",
+        "  --   u.usage_start_time,\n",
+        "--   u.usage_date,\n",
+        "  sum(u.usage_quantity) as dbus\n",
+        "FROM\n",
+        "  system.billing.usage u\n",
+        "  left outer JOIN system.compute.clusters c\n",
+        "  JOIN (\n",
+        "    SELECT\n",
+        "      u.record_id,\n",
+        "      c.cluster_id,\n",
+        "      max(c.change_time) change_time\n",
+        "    FROM\n",
+        "      system.billing.usage u\n",
+        "      JOIN system.compute.clusters c\n",
+        "    WHERE\n",
+        "      u.usage_metadata.cluster_id is not null\n",
+        "      and u.usage_start_time >= '2023-01-01'\n",
+        "      and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "      and date_trunc('HOUR', c.change_time) <= date_trunc('HOUR', u.usage_start_time)\n",
+        "    GROUP BY\n",
+        "      all\n",
+        "  ) config\n",
+        "WHERE\n",
+        "  u.usage_metadata.cluster_id is not null\n",
+        "  and u.usage_start_time >= '2023-01-01' \n",
+        "  and u.usage_date > date_add(current_date(), -30 )\n",
+        "  and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "  and u.record_id = config.record_id\n",
+        "  and c.cluster_id = config.cluster_id\n",
+        "  and c.change_time = config.change_time\n",
+        "  and u.sku_name ilike '%all_purpose%'\n",
+        "group by\n",
+        "  all \n",
+        "), \n",
+        "top_clusters as \n",
+        "(\n",
+        "    SELECT\n",
+        "  account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  sku_name,\n",
+        "  cluster_id,\n",
+        "  cluster_name,\n",
+        "  owned_by,\n",
+        "  driver_node_type,\n",
+        "  worker_node_type,\n",
+        "  min_autoscale_workers,\n",
+        "  max_autoscale_workers,\n",
+        "  auto_termination_minutes,\n",
+        "  dbr_version,\n",
+        "  --   c.change_time,\n",
+        "  --   u.usage_start_time,\n",
+        "  dbus,\n",
+        "  rank(sum(dbus)) over(partition by account_id, cloud, workspace_id order by sum(dbus) desc) rnk, \n",
+        "  rank(sum(dbus)) over(partition by account_id, cloud order by sum(dbus) desc) rnk_overall \n",
+        "    -- rank(sum(dbus)) over(order by dbus DESC) as rnk_overall, \n",
+        "FROM usage\n",
+        "group by all \n",
+        ")\n",
+        "select * \n",
+        "from top_clusters \n",
+        "where rnk < :top_n"
+      ],
+      "parameters": [
+        {
+          "displayName": "top_n",
+          "keyword": "top_n",
+          "dataType": "INTEGER",
+          "defaultSelection": {
+            "values": {
+              "dataType": "INTEGER",
+              "values": [
+                {
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4930b891",
+      "displayName": "trends-jobs",
+      "queryLines": [
+        "select\n",
+        "  account_id, \n",
+        "  workspace_id, \n",
+        "  cloud,\n",
+        "  trunc(usage_date, 'MM') as monthStart,\n",
+        "  count(\n",
+        "    distinct concat(usage_metadata.job_id, usage_metadata.cluster_id)\n",
+        "  ) as JobCount\n",
+        "from\n",
+        "  system.billing.usage\n",
+        "where\n",
+        "  usage_metadata.job_id is not null\n",
+        "  and trunc(usage_date, 'MM') > trunc(add_months(current_date(), - :loookback_months),'MM')\n",
+        "group by all "
+      ],
+      "parameters": [
+        {
+          "displayName": "loookback_months",
+          "keyword": "loookback_months",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "12"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4d8f429a",
+      "displayName": "top-warehouses",
+      "queryLines": [
+        "with usage as (\n",
+        "    SELECT\n",
+        "  --   u.record_id,\n",
+        "  u.account_id, \n",
+        "  u.cloud, \n",
+        "  u.workspace_id,\n",
+        "  u.sku_name,\n",
+        "  u.usage_metadata.warehouse_id,\n",
+        "  sum(u.usage_quantity) as dbus\n",
+        "FROM\n",
+        "  system.billing.usage u\n",
+        "WHERE\n",
+        "  u.usage_metadata.warehouse_id is not null\n",
+        "  and u.usage_date > date_add(current_date(), -30 )\n",
+        "  and u.sku_name ilike '%sql%'\n",
+        "group by\n",
+        "  all \n",
+        "), \n",
+        "top_clusters as \n",
+        "(\n",
+        "    SELECT\n",
+        "  account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  sku_name,\n",
+        "  warehouse_id,\n",
+        "  dbus,\n",
+        "  rank(sum(dbus)) over(partition by account_id, cloud, workspace_id order by sum(dbus) desc) rnk, \n",
+        "  rank(sum(dbus)) over(partition by account_id, cloud order by sum(dbus) desc) rnk_overall \n",
+        "FROM usage\n",
+        "group by all \n",
+        ")\n",
+        "select * \n",
+        "from top_clusters \n",
+        "where rnk < :top_n"
+      ],
+      "parameters": [
+        {
+          "displayName": "top_n",
+          "keyword": "top_n",
+          "dataType": "INTEGER",
+          "defaultSelection": {
+            "values": {
+              "dataType": "INTEGER",
+              "values": [
+                {
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6abe1671",
+      "displayName": "user-growth",
+      "queryLines": [
+        "select\n",
+        "  -- account_id, \n",
+        "  -- workspace_id, \n",
+        "  trunc(event_date, 'MM') as monthStart,\n",
+        "  count(distinct user_identity.email) as UserCount\n",
+        "from\n",
+        "  system.access.audit\n",
+        "where trunc(event_date, 'MM') > trunc(add_months(current_date(), - :loookback_months), 'MM') \n",
+        "group by\n",
+        "  all"
+      ],
+      "parameters": [
+        {
+          "displayName": "loookback_months",
+          "keyword": "loookback_months",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "12"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "738e833c",
+      "displayName": "compute-usage-details",
+      "queryLines": [
+        "SELECT\n",
+        "  --   u.record_id,\n",
+        "  u.account_id, \n",
+        "  u.cloud, \n",
+        "  u.workspace_id,\n",
+        "  u.sku_name,\n",
+        "  c.cluster_id,\n",
+        "  c.cluster_name,\n",
+        "  c.owned_by,\n",
+        "  c.driver_node_type,\n",
+        "  c.worker_node_type,\n",
+        "  c.min_autoscale_workers,\n",
+        "  c.max_autoscale_workers,\n",
+        "  c.auto_termination_minutes,\n",
+        "  c.dbr_version,\n",
+        "  --   c.change_time,\n",
+        "  --   u.usage_start_time,\n",
+        "  u.usage_date,\n",
+        "  sum(u.usage_quantity)\n",
+        "FROM\n",
+        "  system.billing.usage u\n",
+        "  left outer JOIN system.compute.clusters c\n",
+        "  JOIN (\n",
+        "    SELECT\n",
+        "      u.record_id,\n",
+        "      c.cluster_id,\n",
+        "      max(c.change_time) change_time\n",
+        "    FROM\n",
+        "      system.billing.usage u\n",
+        "      JOIN system.compute.clusters c\n",
+        "    WHERE\n",
+        "      u.usage_metadata.cluster_id is not null\n",
+        "      and u.usage_start_time >= '2023-01-01'\n",
+        "      and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "      and date_trunc('HOUR', c.change_time) <= date_trunc('HOUR', u.usage_start_time)\n",
+        "    GROUP BY\n",
+        "      all\n",
+        "  ) config\n",
+        "WHERE\n",
+        "  u.usage_metadata.cluster_id is not null\n",
+        "  and u.usage_start_time >= '2023-01-01' \n",
+        "  and u.usage_date > date_add(current_date(), -30 )\n",
+        "  and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "  and u.record_id = config.record_id\n",
+        "  and c.cluster_id = config.cluster_id\n",
+        "  and c.change_time = config.change_time\n",
+        "group by\n",
+        "  all -- ORDER BY cluster_id, usage_start_time desc;"
+      ]
+    },
+    {
+      "name": "81ab073d",
+      "displayName": "cluster-insights",
+      "queryLines": [
+        "with usage as (\n",
+        "    SELECT\n",
+        "  --   u.record_id,\n",
+        "  u.account_id, \n",
+        "  u.cloud, \n",
+        "  u.workspace_id,\n",
+        "  u.sku_name,\n",
+        "  c.cluster_id,\n",
+        "  c.cluster_name,\n",
+        "  c.owned_by,\n",
+        "  c.driver_node_type,\n",
+        "  c.worker_node_type,\n",
+        "  c.min_autoscale_workers,\n",
+        "  c.max_autoscale_workers,\n",
+        "  c.auto_termination_minutes,\n",
+        "  c.dbr_version,\n",
+        "  --   c.change_time,\n",
+        "  --   u.usage_start_time,\n",
+        "--   u.usage_date,\n",
+        "  sum(u.usage_quantity) as dbus\n",
+        "FROM\n",
+        "  system.billing.usage u\n",
+        "  left outer JOIN system.compute.clusters c\n",
+        "  JOIN (\n",
+        "    SELECT\n",
+        "      u.record_id,\n",
+        "      c.cluster_id,\n",
+        "      max(c.change_time) change_time\n",
+        "    FROM\n",
+        "      system.billing.usage u\n",
+        "      JOIN system.compute.clusters c\n",
+        "    WHERE\n",
+        "      u.usage_metadata.cluster_id is not null\n",
+        "      and u.usage_start_time >= '2023-01-01'\n",
+        "      and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "      and date_trunc('HOUR', c.change_time) <= date_trunc('HOUR', u.usage_start_time)\n",
+        "    GROUP BY\n",
+        "      all\n",
+        "  ) config\n",
+        "WHERE\n",
+        "  u.usage_metadata.cluster_id is not null\n",
+        "  and u.usage_start_time >= '2023-01-01' \n",
+        "  and u.usage_date > date_add(current_date(), -30 )\n",
+        "  and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "  and u.record_id = config.record_id\n",
+        "  and c.cluster_id = config.cluster_id\n",
+        "  and c.change_time = config.change_time\n",
+        "  and u.sku_name ilike '%all_purpose%'\n",
+        "group by\n",
+        "  all \n",
+        ")\n",
+        "SELECT\n",
+        "  account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  sku_name,\n",
+        "  owned_by,\n",
+        "  driver_node_type,\n",
+        "  worker_node_type,\n",
+        "  min_autoscale_workers,\n",
+        "  max_autoscale_workers,\n",
+        "  auto_termination_minutes,\n",
+        "  dbr_version,\n",
+        "  sum(dbus)\n",
+        "FROM usage\n",
+        "group by all "
+      ]
+    },
+    {
+      "name": "8dab1378",
+      "displayName": "kpis",
+      "queryLines": [
+        "with monthly_usage as \n",
+        "(SELECT\n",
+        "  account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  sku_name,\n",
+        "  trunc(usage_date, 'MM') as monthStart,\n",
+        "  billing_origin_product,\n",
+        "  sum(usage_quantity) as dbus\n",
+        "FROM\n",
+        "  system.billing.usage\n",
+        "WHERE\n",
+        "  trunc(usage_date, 'MM') > trunc(add_months(current_date(), - :loookback_months), 'MM')\n",
+        "  AND usage_unit = 'DBU'\n",
+        "group by all ),\n",
+        "mom_growth as\n",
+        "(select account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  monthStart,\n",
+        "  dbus, \n",
+        "  lag(dbus,1) over(partition by account_id, cloud, workspace_id, sku_name, billing_origin_product order by monthStart) as previous_dbus, \n",
+        "  dbus - previous_dbus as dbus_change,\n",
+        "  try_divide(dbus_change,previous_dbus) as pct_change\n",
+        "from monthly_usage)\n",
+        "\n",
+        "select account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  sum(dbus) dbus,\n",
+        "  avg(pct_change) as avg_mom_growth\n",
+        "from mom_growth\n",
+        "group by all "
+      ],
+      "parameters": [
+        {
+          "displayName": "loookback_months",
+          "keyword": "loookback_months",
+          "dataType": "INTEGER",
+          "defaultSelection": {
+            "values": {
+              "dataType": "INTEGER",
+              "values": [
+                {
+                  "value": "12"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9bf0e1e8",
+      "displayName": "month-growth",
+      "queryLines": [
+        "with monthly_usage as \n",
+        "(SELECT\n",
+        "  account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  sku_name,\n",
+        "  trunc(usage_date, 'MM') as monthStart,\n",
+        "  billing_origin_product,\n",
+        "  sum(usage_quantity) as dbus\n",
+        "FROM\n",
+        "  system.billing.usage\n",
+        "WHERE\n",
+        "  trunc(usage_date, 'MM') > trunc(add_months(current_date(), - :loookback_months), 'MM')\n",
+        "  AND usage_unit = 'DBU'\n",
+        "group by all )\n",
+        "\n",
+        "select account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  sku_name,\n",
+        "  monthStart,\n",
+        "  billing_origin_product,\n",
+        "  dbus, \n",
+        "  lag(dbus,1) over(partition by account_id, cloud, workspace_id, sku_name, billing_origin_product order by monthStart) as previous_dbus, \n",
+        "  dbus - previous_dbus as dbus_change\n",
+        "from monthly_usage"
+      ],
+      "parameters": [
+        {
+          "displayName": "loookback_months",
+          "keyword": "loookback_months",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "12"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "aef0a5ec",
+      "displayName": "query-history-slas",
+      "queryLines": [
+        "WITH query_history AS (\n",
+        "  SELECT\n",
+        "    statement_id,\n",
+        "    executed_by,\n",
+        "    statement_text,\n",
+        "    account_id, \n",
+        "    workspace_id, \n",
+        "    compute.warehouse_id AS warehouse_id,\n",
+        "    execution_status,\n",
+        "    f.statement_type,\n",
+        "    client_application,\n",
+        "    COALESCE(error_message, 'None') AS error_message,\n",
+        "    COALESCE(try_divide(total_duration_ms, 1000), 0) AS QueryRuntimeSeconds,\n",
+        "    COALESCE(try_divide(total_task_duration_ms, 1000), 0) AS CPUTotalExecutionTime,\n",
+        "    COALESCE(try_divide(execution_duration_ms, 1000), 0) AS ExecutionQueryTime,\n",
+        "    COALESCE(try_divide(compilation_duration_ms, 1000), 0) AS CompilationQueryTime,\n",
+        "    COALESCE(try_divide(waiting_at_capacity_duration_ms, 1000), 0) AS QueueQueryTime,\n",
+        "    COALESCE(try_divide(waiting_for_compute_duration_ms, 1000), 0) AS StartUpQueryTime,\n",
+        "    COALESCE(try_divide(result_fetch_duration_ms, 1000), 0) AS ResultFetchTime,\n",
+        "    start_time,\n",
+        "    end_time,\n",
+        "    update_time,\n",
+        "    COALESCE(read_bytes, 0) AS read_bytes,\n",
+        "    COALESCE(read_io_cache_percent, 0) AS read_io_cache_percent,\n",
+        "    from_result_cache,\n",
+        "    COALESCE(spilled_local_bytes, 0) AS spilled_local_bytes,\n",
+        "    COALESCE(total_task_duration_ms / total_duration_ms, NULL) AS TotalCPUTime_To_Execution_Time_Ratio, \n",
+        "    COALESCE(waiting_at_capacity_duration_ms / total_duration_ms, 0) AS ProportionQueueTime,\n",
+        "    AVG(try_divide(total_duration_ms, 1000))  OVER () AS WarehouseAvgQueryRuntime,\n",
+        "    AVG(try_divide(waiting_at_capacity_duration_ms, 1000)) OVER () AS WarehouseAvgQueueTime,\n",
+        "    AVG(COALESCE(try_divide(waiting_at_capacity_duration_ms, 1000) / try_divide(total_duration_ms, 1000), 0)) OVER () AS WarehouseAvgProportionTimeQueueing,\n",
+        "    SUM(try_divide(total_duration_ms, 1000)) OVER () AS TotalUsedTimeInWarehouse,\n",
+        "    SUM(try_divide(total_duration_ms, 1000)) OVER (PARTITION BY statement_text) AS TotalStatementTextTimeUsed,\n",
+        "    try_divide(try_divide(total_duration_ms, 1000) , SUM(try_divide(total_duration_ms, 1000)) OVER ()) AS ProportionOfWarehouseTimeUsedByQuery,\n",
+        "    CASE WHEN read_bytes > 0 THEN try_divide(read_bytes,(1024*1024*1024)) ELSE 0 END AS ReadDataAmountInGB,\n",
+        "    CASE WHEN read_io_cache_percent > 0 THEN 'Used Cache' ELSE 'No Cache' END AS UsedCacheFlag,\n",
+        "    CASE WHEN spilled_local_bytes > 0 THEN 'Spilled Data To Disk' ELSE 'No Spill' END AS HasSpillFlag,\n",
+        "    CASE WHEN read_bytes > 0 THEN 'Did Read Data' ELSE 'No Data Read' END AS ReadDataFlag,\n",
+        "    CASE WHEN CPUTotalExecutionTime > 0 THEN 'UsedWorkerTasks' ELSE 'NoWorkers' END AS UsedWorkerTasksFlag,\n",
+        "    CASE WHEN spilled_local_bytes > 0 THEN 1 ELSE 0 END AS Calc_HasSpillFlag,\n",
+        "    CASE WHEN read_bytes > 0 THEN 0.25 ELSE 0 END AS Calc_ReadDataFlag,\n",
+        "    CASE WHEN CPUTotalExecutionTime > 0 THEN 0.25 ELSE 0 END AS Calc_UsedWorkerTasksFlag,\n",
+        "    substr(statement_text, INSTR(statement_text, '/*') + 2, INSTR(statement_text, '*/') - INSTR(statement_text, '/*') - 2) AS dbt_metadata_json\n",
+        "  FROM system.query.history f\n",
+        "  WHERE compute.warehouse_id = :warehouse_id\n",
+        "    AND start_time > date_add(current_date(), -7) \n",
+        "    AND statement_type IS NOT NULL\n",
+        ")\n",
+        "\n",
+        "SELECT \n",
+        "    workspace_id, \n",
+        "    account_id, \n",
+        "    warehouse_id, \n",
+        "    avg(queryRuntimeSeconds), \n",
+        "    avg(resultFetchTime), \n",
+        "    avg(queueQueryTime), \n",
+        "    percentile(queryRuntimeSeconds, 0.95) p95queryRuntimeSeconds, \n",
+        "    percentile(queryRuntimeSeconds, 0.5) p50queryRuntimeSeconds,\n",
+        "    percentile(QueueQueryTime, 0.95) p95QueueQueryTime, \n",
+        "    percentile(QueueQueryTime, 0.5) p50QueueQueryTime\n",
+        "FROM query_history\n",
+        "GROUP BY ALL"
+      ],
+      "parameters": [
+        {
+          "displayName": "warehouse_id",
+          "keyword": "warehouse_id",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "4b9b953939869799"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "af894283",
+      "displayName": "Untitled dataset",
+      "queryLines": [
+        ""
+      ]
+    },
+    {
+      "name": "c544593a",
+      "displayName": "warehouses-with-highest-uptime",
+      "queryLines": [
+        "SELECT\n",
+        "  account_id,\n",
+        "  workspace_id,\n",
+        "  warehouse_id,\n",
+        "  SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time)) / 60.0 AS uptime_hours\n",
+        "FROM\n",
+        "  (\n",
+        "    SELECT\n",
+        "      account_id,\n",
+        "      workspace_id,\n",
+        "      starting.warehouse_id,\n",
+        "      starting.event_time AS start_time,\n",
+        "      (\n",
+        "        SELECT\n",
+        "          MIN(stopping.event_time)\n",
+        "        FROM\n",
+        "          system.compute.warehouse_events AS stopping\n",
+        "        WHERE\n",
+        "          stopping.warehouse_id = starting.warehouse_id\n",
+        "          AND stopping.event_type = 'STOPPED'\n",
+        "          AND stopping.event_time > starting.event_time\n",
+        "      ) AS end_time\n",
+        "    FROM\n",
+        "      system.compute.warehouse_events AS starting\n",
+        "    WHERE\n",
+        "      starting.event_type = 'STARTING' --   AND MONTH(starting.event_time) = 7\n",
+        "      --   AND YEAR(starting.event_time) = YEAR(CURRENT_DATE())\n",
+        "      and starting.event_time > date_add(current_date(), -30)\n",
+        "  ) AS warehouse_uptime\n",
+        "WHERE\n",
+        "  end_time IS NOT NULL\n",
+        "GROUP BY\n",
+        "  all\n",
+        "ORDER BY\n",
+        "  uptime_hours DESC"
+      ]
+    },
+    {
+      "name": "e9b1520d",
+      "displayName": "top-jobs",
+      "queryLines": [
+        "with usage as (\n",
+        "    SELECT\n",
+        "  u.account_id, \n",
+        "  u.cloud, \n",
+        "  u.workspace_id,\n",
+        "  u.sku_name,\n",
+        "  c.cluster_id,\n",
+        "  c.cluster_name,\n",
+        "  c.owned_by,\n",
+        "  c.driver_node_type,\n",
+        "  c.worker_node_type,\n",
+        "  c.min_autoscale_workers,\n",
+        "  c.max_autoscale_workers,\n",
+        "  c.auto_termination_minutes,\n",
+        "  c.dbr_version,\n",
+        "  sum(u.usage_quantity) as dbus\n",
+        "FROM\n",
+        "  system.billing.usage u\n",
+        "  left outer JOIN system.compute.clusters c\n",
+        "  JOIN (\n",
+        "    SELECT\n",
+        "      u.record_id,\n",
+        "      c.cluster_id,\n",
+        "      max(c.change_time) change_time\n",
+        "    FROM\n",
+        "      system.billing.usage u\n",
+        "      JOIN system.compute.clusters c\n",
+        "    WHERE\n",
+        "      u.usage_metadata.cluster_id is not null\n",
+        "      and u.usage_start_time >= '2023-01-01'\n",
+        "      and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "      and date_trunc('HOUR', c.change_time) <= date_trunc('HOUR', u.usage_start_time)\n",
+        "    GROUP BY\n",
+        "      all\n",
+        "  ) config\n",
+        "WHERE\n",
+        "  u.usage_metadata.cluster_id is not null\n",
+        "  and u.usage_start_time >= '2023-01-01' \n",
+        "  and u.usage_date > date_add(current_date(), -30 )\n",
+        "  and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "  and u.record_id = config.record_id\n",
+        "  and c.cluster_id = config.cluster_id\n",
+        "  and c.change_time = config.change_time\n",
+        "  and u.sku_name ilike '%job%'\n",
+        "group by\n",
+        "  all \n",
+        "), \n",
+        "top_clusters as \n",
+        "(\n",
+        "    SELECT\n",
+        "  account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  sku_name,\n",
+        "  cluster_id,\n",
+        "  cluster_name,\n",
+        "  owned_by,\n",
+        "  driver_node_type,\n",
+        "  worker_node_type,\n",
+        "  min_autoscale_workers,\n",
+        "  max_autoscale_workers,\n",
+        "  auto_termination_minutes,\n",
+        "  dbr_version,\n",
+        "  dbus,\n",
+        "  rank(sum(dbus)) over(partition by account_id, cloud, workspace_id order by sum(dbus) desc) rnk, \n",
+        "  rank(sum(dbus)) over(partition by account_id, cloud order by sum(dbus) desc) rnk_overall \n",
+        "    -- rank(sum(dbus)) over(order by dbus DESC) as rnk_overall, \n",
+        "FROM usage\n",
+        "group by all \n",
+        ")\n",
+        "select * \n",
+        "from top_clusters \n",
+        "where rnk < :top_n"
+      ],
+      "parameters": [
+        {
+          "displayName": "top_n",
+          "keyword": "top_n",
+          "dataType": "INTEGER",
+          "defaultSelection": {
+            "values": {
+              "dataType": "INTEGER",
+              "values": [
+                {
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "f8326d35",
+      "displayName": "job-cluster-insights",
+      "queryLines": [
+        "with usage as (\n",
+        "    SELECT\n",
+        "  --   u.record_id,\n",
+        "  u.account_id, \n",
+        "  u.cloud, \n",
+        "  u.workspace_id,\n",
+        "  u.sku_name,\n",
+        "  c.cluster_id,\n",
+        "  c.cluster_name,\n",
+        "  c.owned_by,\n",
+        "  c.driver_node_type,\n",
+        "  c.worker_node_type,\n",
+        "  c.min_autoscale_workers,\n",
+        "  c.max_autoscale_workers,\n",
+        "  c.auto_termination_minutes,\n",
+        "  c.dbr_version,\n",
+        "  --   c.change_time,\n",
+        "  --   u.usage_start_time,\n",
+        "--   u.usage_date,\n",
+        "  sum(u.usage_quantity) as dbus\n",
+        "FROM\n",
+        "  system.billing.usage u\n",
+        "  left outer JOIN system.compute.clusters c\n",
+        "  JOIN (\n",
+        "    SELECT\n",
+        "      u.record_id,\n",
+        "      c.cluster_id,\n",
+        "      max(c.change_time) change_time\n",
+        "    FROM\n",
+        "      system.billing.usage u\n",
+        "      JOIN system.compute.clusters c\n",
+        "    WHERE\n",
+        "      u.usage_metadata.cluster_id is not null\n",
+        "      and u.usage_start_time >= '2023-01-01'\n",
+        "      and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "      and date_trunc('HOUR', c.change_time) <= date_trunc('HOUR', u.usage_start_time)\n",
+        "    GROUP BY\n",
+        "      all\n",
+        "  ) config\n",
+        "WHERE\n",
+        "  u.usage_metadata.cluster_id is not null\n",
+        "  and u.usage_start_time >= '2023-01-01' \n",
+        "  and u.usage_date > date_add(current_date(), -30 )\n",
+        "  and u.usage_metadata.cluster_id = c.cluster_id\n",
+        "  and u.record_id = config.record_id\n",
+        "  and c.cluster_id = config.cluster_id\n",
+        "  and c.change_time = config.change_time\n",
+        "  and u.sku_name ilike '%all_purpose%'\n",
+        "group by\n",
+        "  all \n",
+        ")\n",
+        "SELECT\n",
+        "  account_id, \n",
+        "  cloud, \n",
+        "  workspace_id,\n",
+        "  sku_name,\n",
+        "  owned_by,\n",
+        "  driver_node_type,\n",
+        "  worker_node_type,\n",
+        "  min_autoscale_workers,\n",
+        "  max_autoscale_workers,\n",
+        "  auto_termination_minutes,\n",
+        "  dbr_version,\n",
+        "  sum(dbus)\n",
+        "FROM usage\n",
+        "group by all "
+      ]
+    },
+    {
+      "name": "f8f61723",
+      "displayName": "trends",
+      "queryLines": [
+        ""
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "ac3e2d2d",
+      "displayName": "New Page",
+      "layout": [
+        {
+          "widget": {
+            "name": "040065fc",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "e9b1520d",
+                  "fields": [
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
+                    },
+                    {
+                      "name": "sum(dbus)",
+                      "expression": "SUM(`dbus`)"
+                    },
+                    {
+                      "name": "workspace_id",
+                      "expression": "`workspace_id`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(dbus)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of dbus"
+                },
+                "y": {
+                  "fieldName": "workspace_id",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "workspace_id"
+                },
+                "color": {
+                  "fieldName": "cluster_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "cluster_name"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top N Job Clusters"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 32,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "04aa6076",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Usage Trends"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "0602ed69",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Warehouse Insights"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 58,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "1bc50122",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Databricks Account Usage Dashboard"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "20e6a825",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4d8f429a",
+                  "fields": [
+                    {
+                      "name": "sum(dbus)",
+                      "expression": "SUM(`dbus`)"
+                    },
+                    {
+                      "name": "warehouse_id",
+                      "expression": "`warehouse_id`"
+                    },
+                    {
+                      "name": "workspace_id",
+                      "expression": "`workspace_id`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(dbus)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of dbus"
+                },
+                "y": {
+                  "fieldName": "workspace_id",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "workspace_id"
+                },
+                "color": {
+                  "fieldName": "warehouse_id",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "warehouse_id"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top N SQL Warehouse"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 40,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "238a7ee5",
+            "queries": [
+              {
+                "name": "dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef067c9d9f1136b5758bbfd1f38bd6_cloud",
+                "query": {
+                  "datasetName": "f8f61723",
+                  "fields": [
+                    {
+                      "name": "cloud",
+                      "expression": "`cloud`"
+                    },
+                    {
+                      "name": "cloud_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "cloud",
+                    "displayName": "cloud",
+                    "queryName": "dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef067c9d9f1136b5758bbfd1f38bd6_cloud"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "3030ec9e",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "aef0a5ec",
+                  "fields": [
+                    {
+                      "name": "p50queryRuntimeSeconds",
+                      "expression": "`p50queryRuntimeSeconds`"
+                    },
+                    {
+                      "name": "p95queryRuntimeSeconds",
+                      "expression": "`p95queryRuntimeSeconds`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "p50queryRuntimeSeconds",
+                      "displayName": "p50queryRuntimeSeconds"
+                    },
+                    {
+                      "fieldName": "p95queryRuntimeSeconds",
+                      "displayName": "p95queryRuntimeSeconds"
+                    }
+                  ]
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "p50 vs p90 Query Execution"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 61,
+            "width": 2,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "34e7fbdb",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f8f61723",
+                  "fields": [
+                    {
+                      "name": "monthly(monthStart)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `monthStart`)"
+                    },
+                    {
+                      "name": "sku_name",
+                      "expression": "`sku_name`"
+                    },
+                    {
+                      "name": "sum(dbus)",
+                      "expression": "SUM(`dbus`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(monthStart)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "monthStart"
+                },
+                "y": {
+                  "fieldName": "sum(dbus)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of dbus"
+                },
+                "color": {
+                  "fieldName": "sku_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "sku_name"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly DBU Consumption by SKU"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "3d2d8f2c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f8f61723",
+                  "fields": [
+                    {
+                      "name": "sum(dbus)",
+                      "expression": "SUM(`dbus`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(dbus)",
+                  "displayName": "Sum of dbus"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "DBUs"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "52e6705a",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef067c9d9f1136b5758bbfd1f38bd6_loookback_months",
+                "query": {
+                  "datasetName": "f8f61723",
+                  "parameters": [
+                    {
+                      "name": "loookback_months",
+                      "keyword": "loookback_months"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "loookback_months",
+                    "queryName": "parameter_dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef067c9d9f1136b5758bbfd1f38bd6_loookback_months"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 2,
+            "width": 1,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "690a5676",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "e9b1520d",
+                  "fields": [
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
+                    },
+                    {
+                      "name": "dbus",
+                      "expression": "`dbus`"
+                    },
+                    {
+                      "name": "owned_by",
+                      "expression": "`owned_by`"
+                    },
+                    {
+                      "name": "rnk",
+                      "expression": "`rnk`"
+                    },
+                    {
+                      "name": "rnk_overall",
+                      "expression": "`rnk_overall`"
+                    },
+                    {
+                      "name": "worker_node_type",
+                      "expression": "`worker_node_type`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "cluster_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100005,
+                    "title": "cluster_name",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "cluster_name"
+                  },
+                  {
+                    "fieldName": "owned_by",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100006,
+                    "title": "owned_by",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "owned_by"
+                  },
+                  {
+                    "fieldName": "worker_node_type",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100008,
+                    "title": "worker_node_type",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "worker_node_type"
+                  },
+                  {
+                    "fieldName": "dbus",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "decimal",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100013,
+                    "title": "dbus",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "dbus"
+                  },
+                  {
+                    "fieldName": "rnk",
+                    "numberFormat": "0",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100014,
+                    "title": "rnk",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "rnk"
+                  },
+                  {
+                    "fieldName": "rnk_overall",
+                    "numberFormat": "0",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100015,
+                    "title": "rnk_overall",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "rnk_overall"
+                  }
+                ]
+              },
+              "invisibleColumns": [
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "account_id",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100000,
+                  "title": "account_id",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "cloud",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100001,
+                  "title": "cloud",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "workspace_id",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100002,
+                  "title": "workspace_id",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "sku_name",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100003,
+                  "title": "sku_name",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "cluster_id",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100004,
+                  "title": "cluster_id",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "driver_node_type",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100007,
+                  "title": "driver_node_type",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "numberFormat": "0",
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "min_autoscale_workers",
+                  "type": "integer",
+                  "displayAs": "number",
+                  "order": 100009,
+                  "title": "min_autoscale_workers",
+                  "allowSearch": false,
+                  "alignContent": "right",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "numberFormat": "0",
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "max_autoscale_workers",
+                  "type": "integer",
+                  "displayAs": "number",
+                  "order": 100010,
+                  "title": "max_autoscale_workers",
+                  "allowSearch": false,
+                  "alignContent": "right",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "numberFormat": "0",
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "auto_termination_minutes",
+                  "type": "integer",
+                  "displayAs": "number",
+                  "order": 100011,
+                  "title": "auto_termination_minutes",
+                  "allowSearch": false,
+                  "alignContent": "right",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "dbr_version",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100012,
+                  "title": "dbr_version",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                }
+              ],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Top N Job Clusters"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 32,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "6ad9c996",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c544593a",
+                  "fields": [
+                    {
+                      "name": "uptime_hours",
+                      "expression": "`uptime_hours`"
+                    },
+                    {
+                      "name": "warehouse_id",
+                      "expression": "`warehouse_id`"
+                    },
+                    {
+                      "name": "workspace_id",
+                      "expression": "`workspace_id`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "workspace_id",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "workspace_id",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "workspace_id"
+                  },
+                  {
+                    "fieldName": "warehouse_id",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100002,
+                    "title": "warehouse_id",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "warehouse_id"
+                  },
+                  {
+                    "fieldName": "uptime_hours",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "decimal",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100003,
+                    "title": "uptime_hours",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "uptime_hours"
+                  }
+                ]
+              },
+              "invisibleColumns": [
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "account_id",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100000,
+                  "title": "account_id",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                }
+              ],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Warehouses with highest uptime last month"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 40,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "84b5c3dc",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f8f61723",
+                  "fields": [
+                    {
+                      "name": "billing_origin_product",
+                      "expression": "`billing_origin_product`"
+                    },
+                    {
+                      "name": "monthly(monthStart)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `monthStart`)"
+                    },
+                    {
+                      "name": "sum(dbus)",
+                      "expression": "SUM(`dbus`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(monthStart)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "monthStart"
+                },
+                "y": {
+                  "fieldName": "sum(dbus)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of dbus"
+                },
+                "color": {
+                  "fieldName": "billing_origin_product",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "billing_origin_product"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly DBU Consumption by Workload Type"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 4,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "9556712f",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Top Analysis - Last 30 days\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 22,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "add1042f",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f8326d35",
+                  "fields": [
+                    {
+                      "name": "dbr_version",
+                      "expression": "`dbr_version`"
+                    },
+                    {
+                      "name": "owned_by",
+                      "expression": "`owned_by`"
+                    },
+                    {
+                      "name": "sum(sum(dbus))",
+                      "expression": "SUM(`sum(dbus)`)"
+                    },
+                    {
+                      "name": "worker_node_type",
+                      "expression": "`worker_node_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "dbr_version",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "dbr_version"
+                },
+                "y": {
+                  "fieldName": "worker_node_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "worker_node_type"
+                },
+                "color": {
+                  "fieldName": "owned_by",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "owned_by"
+                },
+                "size": {
+                  "fieldName": "sum(sum(dbus))",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of sum(dbus)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Job Cluster Details"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 48,
+            "width": 3,
+            "height": 10
+          }
+        },
+        {
+          "widget": {
+            "name": "b653edaf",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef070aaefd16b8b0108353028cf17b_warehouse_id",
+                "query": {
+                  "datasetName": "1d8e639a",
+                  "parameters": [
+                    {
+                      "name": "warehouse_id",
+                      "keyword": "warehouse_id"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "warehouse_id",
+                    "queryName": "parameter_dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef070aaefd16b8b0108353028cf17b_warehouse_id"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 60,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "c5ad44c3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "9bf0e1e8",
+                  "fields": [
+                    {
+                      "name": "monthly(monthStart)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `monthStart`)"
+                    },
+                    {
+                      "name": "sum(dbus_change)",
+                      "expression": "SUM(`dbus_change`)"
+                    },
+                    {
+                      "name": "workspace_id",
+                      "expression": "`workspace_id`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(monthStart)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "monthStart"
+                },
+                "y": {
+                  "fieldName": "sum(dbus_change)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of dbus_change"
+                },
+                "color": {
+                  "fieldName": "workspace_id",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "workspace_id"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Month Over Month DBU Change by Workspace"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 10,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "c6aa6422",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "9bf0e1e8",
+                  "fields": [
+                    {
+                      "name": "monthly(monthStart)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `monthStart`)"
+                    },
+                    {
+                      "name": "sku_name",
+                      "expression": "`sku_name`"
+                    },
+                    {
+                      "name": "sum(dbus_change)",
+                      "expression": "SUM(`dbus_change`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(monthStart)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "monthStart"
+                },
+                "y": {
+                  "fieldName": "sum(dbus_change)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of dbus_change"
+                },
+                "color": {
+                  "fieldName": "sku_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "sku_name"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Month Over Month DBU Change by SKU"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "ce596b28",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "43fec0b8",
+                  "fields": [
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
+                    },
+                    {
+                      "name": "dbus",
+                      "expression": "`dbus`"
+                    },
+                    {
+                      "name": "owned_by",
+                      "expression": "`owned_by`"
+                    },
+                    {
+                      "name": "rnk",
+                      "expression": "`rnk`"
+                    },
+                    {
+                      "name": "rnk_overall",
+                      "expression": "`rnk_overall`"
+                    },
+                    {
+                      "name": "worker_node_type",
+                      "expression": "`worker_node_type`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "cluster_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100005,
+                    "title": "cluster_name",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "cluster_name"
+                  },
+                  {
+                    "fieldName": "owned_by",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100006,
+                    "title": "owned_by",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "owned_by"
+                  },
+                  {
+                    "fieldName": "worker_node_type",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100008,
+                    "title": "worker_node_type",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "worker_node_type"
+                  },
+                  {
+                    "fieldName": "dbus",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "decimal",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100013,
+                    "title": "dbus",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "dbus"
+                  },
+                  {
+                    "fieldName": "rnk",
+                    "numberFormat": "0",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100014,
+                    "title": "rnk",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "rnk"
+                  },
+                  {
+                    "fieldName": "rnk_overall",
+                    "numberFormat": "0",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100015,
+                    "title": "rnk_overall",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "rnk_overall"
+                  }
+                ]
+              },
+              "invisibleColumns": [
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "account_id",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100000,
+                  "title": "account_id",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "cloud",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100001,
+                  "title": "cloud",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "workspace_id",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100002,
+                  "title": "workspace_id",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "sku_name",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100003,
+                  "title": "sku_name",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "cluster_id",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100004,
+                  "title": "cluster_id",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "driver_node_type",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100007,
+                  "title": "driver_node_type",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "numberFormat": "0",
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "min_autoscale_workers",
+                  "type": "integer",
+                  "displayAs": "number",
+                  "order": 100009,
+                  "title": "min_autoscale_workers",
+                  "allowSearch": false,
+                  "alignContent": "right",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "numberFormat": "0",
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "max_autoscale_workers",
+                  "type": "integer",
+                  "displayAs": "number",
+                  "order": 100010,
+                  "title": "max_autoscale_workers",
+                  "allowSearch": false,
+                  "alignContent": "right",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "numberFormat": "0",
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "auto_termination_minutes",
+                  "type": "integer",
+                  "displayAs": "number",
+                  "order": 100011,
+                  "title": "auto_termination_minutes",
+                  "allowSearch": false,
+                  "alignContent": "right",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                },
+                {
+                  "booleanValues": [
+                    "false",
+                    "true"
+                  ],
+                  "imageUrlTemplate": "{{ @ }}",
+                  "imageTitleTemplate": "{{ @ }}",
+                  "imageWidth": "",
+                  "imageHeight": "",
+                  "linkUrlTemplate": "{{ @ }}",
+                  "linkTextTemplate": "{{ @ }}",
+                  "linkTitleTemplate": "{{ @ }}",
+                  "linkOpenInNewTab": true,
+                  "name": "dbr_version",
+                  "type": "string",
+                  "displayAs": "string",
+                  "order": 100012,
+                  "title": "dbr_version",
+                  "allowSearch": false,
+                  "alignContent": "left",
+                  "allowHTML": false,
+                  "highlightLinks": false,
+                  "useMonospaceFont": false,
+                  "preserveWhitespace": false
+                }
+              ],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Top N Interactive Clusters"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 24,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "d34beed6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4930b891",
+                  "fields": [
+                    {
+                      "name": "monthly(monthStart)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `monthStart`)"
+                    },
+                    {
+                      "name": "sum(JobCount)",
+                      "expression": "SUM(`JobCount`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(monthStart)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "monthStart"
+                },
+                "y": {
+                  "fieldName": "sum(JobCount)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of JobCount"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Number of Jobs "
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "d90dbc42",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Compute Analysis"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 46,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "e2bf08c0",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "43fec0b8",
+                  "fields": [
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
+                    },
+                    {
+                      "name": "sum(dbus)",
+                      "expression": "SUM(`dbus`)"
+                    },
+                    {
+                      "name": "workspace_id",
+                      "expression": "`workspace_id`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(dbus)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of dbus"
+                },
+                "y": {
+                  "fieldName": "workspace_id",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "workspace_id"
+                },
+                "color": {
+                  "fieldName": "cluster_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "cluster_name"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top N Interactive Clusters"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "e55d0886",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "81ab073d",
+                  "fields": [
+                    {
+                      "name": "dbr_version",
+                      "expression": "`dbr_version`"
+                    },
+                    {
+                      "name": "owned_by",
+                      "expression": "`owned_by`"
+                    },
+                    {
+                      "name": "sum(sum(dbus))",
+                      "expression": "SUM(`sum(dbus)`)"
+                    },
+                    {
+                      "name": "worker_node_type",
+                      "expression": "`worker_node_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "dbr_version",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "dbr_version"
+                },
+                "y": {
+                  "fieldName": "worker_node_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "worker_node_type"
+                },
+                "color": {
+                  "fieldName": "owned_by",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "owned_by"
+                },
+                "size": {
+                  "fieldName": "sum(sum(dbus))",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of sum(dbus)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Interactive Cluster Details"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 48,
+            "width": 3,
+            "height": 10
+          }
+        },
+        {
+          "widget": {
+            "name": "f2ecb9d4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "6abe1671",
+                  "fields": [
+                    {
+                      "name": "monthly(monthStart)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `monthStart`)"
+                    },
+                    {
+                      "name": "sum(UserCount)",
+                      "expression": "SUM(`UserCount`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(monthStart)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "monthStart"
+                },
+                "y": {
+                  "fieldName": "sum(UserCount)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of UserCount"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "User Growth "
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 16,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "fc2b09d2",
+            "queries": [
+              {
+                "name": "dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef067c9d9f1136b5758bbfd1f38bd6_workspace_id",
+                "query": {
+                  "datasetName": "f8f61723",
+                  "fields": [
+                    {
+                      "name": "workspace_id",
+                      "expression": "`workspace_id`"
+                    },
+                    {
+                      "name": "workspace_id_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "workspace_id",
+                    "displayName": "workspace_id",
+                    "queryName": "dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef067c9d9f1136b5758bbfd1f38bd6_workspace_id"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": ""
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "fc4a559f",
+            "queries": [
+              {
+                "name": "dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef067c9d9f1136b5758bbfd1f38bd6_account_id",
+                "query": {
+                  "datasetName": "f8f61723",
+                  "fields": [
+                    {
+                      "name": "account_id",
+                      "expression": "`account_id`"
+                    },
+                    {
+                      "name": "account_id_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "account_id",
+                    "displayName": "account_id",
+                    "queryName": "dashboards/01ef067b4936179a844cbf9a673c6fcd/datasets/01ef067c9d9f1136b5758bbfd1f38bd6_account_id"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": ""
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 2,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "ff80fad7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "1d8e639a",
+                  "fields": [
+                    {
+                      "name": "avg(avg(queryRuntimeSeconds))",
+                      "expression": "AVG(`avg(queryRuntimeSeconds)`)"
+                    },
+                    {
+                      "name": "avg(avg(queueQueryTime))",
+                      "expression": "AVG(`avg(queueQueryTime)`)"
+                    },
+                    {
+                      "name": "hourly(start_hour)",
+                      "expression": "DATE_TRUNC(\"HOUR\", `start_hour`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "hourly(start_hour)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "start_hour"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "avg(avg(queryRuntimeSeconds))",
+                      "displayName": "Average avg(queryRuntimeSeconds)"
+                    },
+                    {
+                      "fieldName": "avg(avg(queueQueryTime))",
+                      "displayName": "Average avg(queueQueryTime)"
+                    }
+                  ]
+                },
+                "color": {
+                  "legend": {
+                    "position": "bottom"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Average Query Execution vs Queue Time"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 61,
+            "width": 4,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}
